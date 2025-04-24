@@ -18,5 +18,5 @@ TBD:
 - [ ] DNSMasq for making DNS records for local network
 
 - [ ] zsh + Oh My Zsh
-- [ ] Change MOTD
+- [x] Change MOTD
 - [ ] Write script for installing Lazydocker for managing containers in CLI
