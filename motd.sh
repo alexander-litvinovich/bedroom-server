@@ -28,6 +28,10 @@ if [ ! -f "$DYNAMIC_MOTD_DEST" ]; then
   if [ -f /etc/motd ]; then
     cp /etc/motd $BACKUP_DIR/
     echo "Backed up original /etc/motd"
+
+    # Remove the static MOTD file since we're using only dynamic MOTD
+    rm -f /etc/motd
+    echo "Removed static MOTD file"
   fi
 
   # Disable default MOTD scripts if they exist
@@ -38,35 +42,6 @@ if [ ! -f "$DYNAMIC_MOTD_DEST" ]; then
     # Disable default MOTD scripts by removing execute permission
     chmod -x $MOTD_DIR/*
     echo "Disabled default MOTD scripts"
-  fi
-
-  # Create a static MOTD file as fallback
-  cat >/etc/motd <<'EOF'
-===================================================================
- 
-  ██████╗ ███████╗██████╗ ██████╗  ██████╗  ██████╗ ███╗   ███╗
-  ██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔═══██╗██╔═══██╗████╗ ████║
-  ██████╔╝█████╗  ██║  ██║██████╔╝██║   ██║██║   ██║██╔████╔██║
-  ██╔══██╗██╔══╝  ██║  ██║██╔══██╗██║   ██║██║   ██║██║╚██╔╝██║
-  ██████╔╝███████╗██████╔╝██║  ██║╚██████╔╝╚██████╔╝██║ ╚═╝ ██║
-  ╚═════╝ ╚══════╝╚═════╝ ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝
-
-  ███████╗███████╗██████╗ ██╗   ██╗███████╗██████╗             
-  ██╔════╝██╔════╝██╔══██╗██║   ██║██╔════╝██╔══██╗            
-  ███████╗█████╗  ██████╔╝██║   ██║█████╗  ██████╔╝            
-  ╚════██║██╔══╝  ██╔══██╗╚██╗ ██╔╝██╔══╝  ██╔══██╗            
-  ███████║███████╗██║  ██║ ╚████╔╝ ███████╗██║  ██║            
-  ╚══════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝╚═╝  ╚═╝            
-
-===================================================================
-EOF
-
-  # Enable dynamic MOTD
-  if [ -f /etc/pam.d/sshd ]; then
-    if ! grep -q "pam_motd.so" /etc/pam.d/sshd; then
-      echo "session    optional     pam_motd.so  motd=/etc/motd" >>/etc/pam.d/sshd
-      echo "Added MOTD configuration to PAM"
-    fi
   fi
 
   # Check if we should disable the Ubuntu news/ads in MOTD
