@@ -2,7 +2,7 @@
 
 # Handy scripts
 
-apt-get install -y toilet boxes mc
+sudo apt-get install -y toilet boxes mc
 
 # Check if zsh is installed
 if ! command -v zsh &>/dev/null; then
