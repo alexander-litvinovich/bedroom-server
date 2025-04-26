@@ -146,7 +146,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-boxes "UBUNTU POWER MANAGEMENT CONFIGURATOR"
+echo "UBUNTU POWER MANAGEMENT CONFIGURATOR" | boxes
 
 # Run all configuration functions
 configure_desktop_settings
@@ -154,7 +154,7 @@ configure_systemd_settings
 configure_power_button
 configure_server_settings
 
-boxes "CONFIGURATION COMPLETE"
+echo "CONFIGURATION COMPLETE" | boxes
 # Final success message
 echo -e "\033[1;36mYour system has been configured to:"
 echo "  ✓ Prevent system sleep/suspend"
