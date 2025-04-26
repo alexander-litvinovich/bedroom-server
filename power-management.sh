@@ -9,26 +9,13 @@
 # Works on: Both Ubuntu Desktop and Ubuntu Server
 #==============================================================================
 
+# Source the print utility functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/utils/print.sh"
+
 #------------------------------------------------------------------------------
 # FUNCTIONS
 #------------------------------------------------------------------------------
-
-# Print colored messages for better readability
-print_header() {
-  echo -e "\n\033[1;34m==== $1 ====\033[0m"
-}
-
-print_success() {
-  echo -e "\033[1;32m✓ $1\033[0m"
-}
-
-print_info() {
-  echo -e "\033[1;36m→ $1\033[0m"
-}
-
-print_skip() {
-  echo -e "\033[1;33m⤷ $1\033[0m"
-}
 
 # Configure desktop environment power settings
 configure_desktop_settings() {
@@ -141,7 +128,7 @@ configure_server_settings() {
 #------------------------------------------------------------------------------
 
 # Check for root privileges
-if [ "$(id -u)" -ne 0 ]; then
+if [ "$(id -u)" -ne 0; then
   echo -e "\033[1;31mError: This script must be run as root (sudo).\033[0m"
   exit 1
 fi
