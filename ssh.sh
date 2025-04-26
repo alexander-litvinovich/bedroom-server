@@ -1,40 +1,36 @@
 #!/bin/bash
 
-sudo apt update && sudo apt install openssh-server ufw
+# Install SSH server and related tools
+sudo apt update && sudo apt install openssh-server ufw keychain
 sudo systemctl enable ssh
 sudo ufw allow ssh
 
-# SSH Agent Configuration
-# Create systemd service file for the user
-cat > /etc/systemd/user/ssh-agent.service << 'EOL'
-[Unit]
-Description=SSH key agent
+# Add keychain initialization to .zshrc for Oh My Zsh
+if ! grep -q "keychain --eval --quiet" "$HOME/.zshrc"; then
+  echo "# Start SSH agent with keychain" >>"$HOME/.zshrc"
+  echo "eval \$(keychain --eval --quiet)" >>"$HOME/.zshrc"
+  echo "Added keychain initialization to .zshrc"
+fi
 
-[Service]
-Type=simple
-Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
-ExecStart=/usr/bin/ssh-agent -D -a $SSH_AUTH_SOCK
+# Configure SSH to use template from assets - simplified approach
+mkdir -p "$HOME/.ssh"
+SSH_CONFIG="$HOME/.ssh/config"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SSH_CONFIG_TEMPLATE="${SCRIPT_DIR}/assets/ssh_config"
 
-[Install]
-WantedBy=default.target
-EOL
+# Always back up existing config if it exists
+if [ -f "$SSH_CONFIG" ]; then
+  cp "$SSH_CONFIG" "${SSH_CONFIG}.bak"
+  echo "Backed up existing SSH config to ${SSH_CONFIG}.bak"
+fi
 
-# Enable SSH agent for the user
-echo "# SSH Agent configuration" >> $HOME/.bashrc
-echo "export SSH_AUTH_SOCK=\"\$XDG_RUNTIME_DIR/ssh-agent.socket\"" >> $HOME/.bashrc
-echo "# Start ssh-agent if not already running" >> $HOME/.bashrc
-echo "if ! pgrep -u \"$USER\" ssh-agent > /dev/null; then" >> $HOME/.bashrc
-echo "    systemctl --user start ssh-agent" >> $HOME/.bashrc
-echo "fi" >> $HOME/.bashrc
+# Simply copy the template, overwriting any existing config
+cp "$SSH_CONFIG_TEMPLATE" "$SSH_CONFIG"
+echo "Updated SSH config from template"
 
-# Add GitHub SSH key to ssh-agent automatically
-echo "# Add GitHub SSH key to ssh-agent" >> $HOME/.bashrc
-echo "if [ -f \"$HOME/.ssh/gitkey\" ]; then" >> $HOME/.bashrc
-echo "    ssh-add -q \"$HOME/.ssh/gitkey\" 2>/dev/null || true" >> $HOME/.bashrc
-echo "fi" >> $HOME/.bashrc
+# Set proper permissions for SSH directory and config
+chmod 700 "$HOME/.ssh"
+chmod 600 "$SSH_CONFIG"
 
-# Enable the service to start on boot
-systemctl --user enable ssh-agent
-
-echo "SSH agent has been configured to start automatically on boot"
-echo "Your GitHub SSH key will be automatically added to ssh-agent on login"
+echo "SSH agent configuration with keychain is complete"
+echo "Your SSH keys will be automatically added to the agent when used"

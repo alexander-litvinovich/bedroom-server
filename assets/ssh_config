@@ -1,0 +1,11 @@
+# SSH Client Configuration
+
+Host *
+    AddKeysToAgent yes
+
+# GitHub-specific configuration
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/gitkey
+    IdentitiesOnly yes
