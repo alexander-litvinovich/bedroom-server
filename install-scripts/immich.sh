@@ -5,7 +5,6 @@
 # This script installs and configures the Immich application
 
 # Source utility scripts
-
 source "$UTILS_DIR/print.sh"
 
 immich_dir="$HOME/.immich-app/"
@@ -21,7 +20,8 @@ if [ ! -d "$immich_dir" ]; then
   cp "$ASSETS_DIR/immich.example.env" "$immich_dir/.env"
 
   # Prompt the user for the PostgreSQL password. If no input, use 'postgres' as default
-  read -p "Enter your PostgreSQL password (default is 'postgres'): " postgres_password
+  print_info "Enter your PostgreSQL password (default is 'postgres'): "
+  read postgres_password
 
   if [ -z "$postgres_password" ]; then
     postgres_password="postgres"

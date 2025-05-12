@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/zsh
 
 # ======================================================
 # Gnome Remote Desktop Installation
