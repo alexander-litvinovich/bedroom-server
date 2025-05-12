@@ -78,10 +78,10 @@ EOF
 # Configure UFW firewall
 print_info "Configuring firewall..."
 sudo ufw allow 3389/tcp comment "RDP" || {
-  print_warning "Failed to configure firewall for RDP"
+  print_error "Failed to configure firewall for RDP"
 }
 sudo ufw reload || {
-  print_warning "Failed to reload firewall"
+  print_error "Failed to reload firewall"
 }
 
 # Set up GNOME Remote Desktop for the current user
@@ -149,7 +149,7 @@ print_success "Gnome Remote Desktop installation and configuration completed"
 print_info "You can connect to this system using any RDP client"
 print_info "Username: $CURRENT_USER"
 print_info "Password: 12345678"
-print_warning "Please change the default password for security reasons"
+print_error "Please change the default password for security reasons"
 print_info "Default RDP port: 3389"
 
 exit 0
