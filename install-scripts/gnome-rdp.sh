@@ -10,7 +10,6 @@
 
 # Source utility scripts
 source "$UTILS_DIR/print.sh"
-source "$UTILS_DIR/command.sh"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then

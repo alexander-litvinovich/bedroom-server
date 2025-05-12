@@ -14,7 +14,7 @@ This repository contains bash scripts for server management and automation that 
 
 ### Path Management
 
-- All scripts should source the paths utility file:
+- All scripts are running using the script `preflight.sh` which sources the file with paths
   ```bash
   source "$(dirname "${BASH_SOURCE[0]}")/utils/paths.sh"
   ```
@@ -52,7 +52,6 @@ This repository contains bash scripts for server management and automation that 
 #!/bin/bash
 
 # Source utility scripts
-source "$(dirname "${BASH_SOURCE[0]}")/utils/paths.sh"
 source "$UTILS_DIR/print.sh"
 
 # Script logic

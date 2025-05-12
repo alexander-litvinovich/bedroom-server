@@ -13,7 +13,7 @@ source "$UTILS_DIR/command.sh"
 source "$UTILS_DIR/print.sh"
 
 # Software distributed via APT
-sudo apt-get install -y toilet boxes mc zsh tigervnc-standalone-server tigervnc-common
+sudo apt-get install -y toilet boxes mc zsh
 
 # Software w/ install bash scripts
 zsh "$INSTALLS_DIR/ohmyzsh.sh"
@@ -21,3 +21,4 @@ install "tailscale" "curl -fsSL https://tailscale.com/install.sh | sh"
 install "docker" "$INSTALLS_DIR/docker.sh"
 install "lazydocker" "curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash"
 zsh "$INSTALLS_DIR/immich.sh"
+zsh "$INSTALLS_DIR/gnome-rdp.sh"
