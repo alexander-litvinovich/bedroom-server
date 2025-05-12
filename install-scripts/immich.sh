@@ -34,3 +34,6 @@ if [ ! -d "$immich_dir" ]; then
 else
   print_info "Immich directory already exists at $immich_dir"
 fi
+
+cd $immich_dir
+docker compose up -d
