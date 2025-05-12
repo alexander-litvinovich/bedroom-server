@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 
 # ======================================================
 # Gnome Remote Desktop Installation
@@ -8,22 +8,26 @@
 # ports, and sets up automatic startup.
 # ======================================================
 
-# Source utility scripts
+# Source paths and utility scripts
 source "$UTILS_DIR/print.sh"
 
-# # Check if running as root
-# if [ "$EUID" -ne 0 ]; then
-#   print_error "This script must be run as root"
-#   exit 1
-# fi
+# Function to check if we have sudo permissions
+check_sudo() {
+  if ! sudo -n true 2>/dev/null; then
+    print_info "Administrator privileges are required for some operations."
+    print_info "You will be prompted for your password when needed."
+  fi
+}
 
-# Get the current non-root user who executed the script
+# Get the current user (works whether script is run with sudo or not)
 if [ -n "$SUDO_USER" ]; then
   CURRENT_USER="$SUDO_USER"
 else
-  print_error "Unable to determine the current user"
-  exit 1
+  CURRENT_USER=$(whoami)
 fi
+
+# Initial sudo check
+check_sudo
 
 print_info "Installing Gnome Remote Desktop packages..."
 sudo apt-get update || {
@@ -40,12 +44,13 @@ sudo apt-get install -y xrdp || {
 }
 
 # Stop the service if it's running
+print_info "Stopping existing services..."
 sudo systemctl stop gnome-remote-desktop.service
 
 # Configure virtual monitor if no monitor is connected
 print_info "Configuring virtual monitor..."
 # Create a dummy monitor config file for Xorg
-sudo cat >/usr/share/X11/xorg.conf.d/10-dummy-monitor.conf <<EOF
+sudo tee /usr/share/X11/xorg.conf.d/10-dummy-monitor.conf >/dev/null <<EOF
 Section "Device"
     Identifier "DummyDevice"
     Driver "dummy"
@@ -72,8 +77,12 @@ EOF
 
 # Configure UFW firewall
 print_info "Configuring firewall..."
-sudo ufw allow 3389/tcp comment "RDP" || { print_warning "Failed to configure firewall for RDP"; }
-sudo ufw reload || { print_warning "Failed to reload firewall"; }
+sudo ufw allow 3389/tcp comment "RDP" || {
+  print_warning "Failed to configure firewall for RDP"
+}
+sudo ufw reload || {
+  print_warning "Failed to reload firewall"
+}
 
 # Set up GNOME Remote Desktop for the current user
 print_info "Setting up Remote Desktop for user: $CURRENT_USER"
@@ -97,12 +106,18 @@ gsettings set org.gnome.desktop.remote-desktop.rdp screen-share-mode 'control'
 EOF
 
 chmod +x "$TMP_SCRIPT"
-sudo -u "$CURRENT_USER" "$TMP_SCRIPT"
+
+# If running as the user already, just run directly, otherwise use sudo
+if [ "$CURRENT_USER" = "$(whoami)" ]; then
+  bash "$TMP_SCRIPT"
+else
+  sudo -u "$CURRENT_USER" "$TMP_SCRIPT"
+fi
 rm "$TMP_SCRIPT"
 
 # Create systemd service to start Gnome Remote Desktop on boot
 print_info "Setting up autostart service..."
-sudo cat >/etc/systemd/system/gnome-remote-desktop-starter.service <<EOF
+sudo tee /etc/systemd/system/gnome-remote-desktop-starter.service >/dev/null <<EOF
 [Unit]
 Description=Gnome Remote Desktop Starter
 After=network.target
@@ -121,6 +136,7 @@ WantedBy=multi-user.target
 EOF
 
 # Reload systemd configurations
+print_info "Configuring services..."
 sudo systemctl daemon-reload
 
 # Enable and start the services
