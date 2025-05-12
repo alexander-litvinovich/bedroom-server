@@ -8,6 +8,10 @@ The list of software to be running:
 
 - [x] OpenSSH server
 - [x] Docker
+- [x] Lazydocker
+- [x] zsh + Oh My Zsh
+- [x] Change MOTD
+- [x] Tailscale
 
 TBD:
 
@@ -17,6 +21,8 @@ TBD:
 - [ ] Photo album storing service
 - [ ] DNSMasq for making DNS records for local network
 
-- [ ] zsh + Oh My Zsh
-- [x] Change MOTD
-- [ ] Write script for installing Lazydocker for managing containers in CLI
+## How to install and make it run
+
+Start by installing packages from `preflight.sh`
+
+To enable SSH access use `ssh.sh` it installs OpenSSH Uncomplicated Firewall (UFW) Keychain. Set up SSH server as a daemon, opens 22 port in UFW and applying SSH configuration from `assets/ssh_config`. Also it adds SSH agent autostart to `~/.zshrc`.
