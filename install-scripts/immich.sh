@@ -5,7 +5,7 @@
 # This script installs and configures the Immich application
 
 # Source utility scripts
-source "$(dirname "${BASH_SOURCE[0]}")/../utils/paths.sh"
+source "$(pwd)/utils/paths.sh"
 source "$UTILS_DIR/print.sh"
 
 IMMICH_DIR="$HOME/.immich-app/"
