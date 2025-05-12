@@ -20,11 +20,11 @@ if [ ! -d "$immich_dir" ]; then
   cp "$ASSETS_DIR/immich.example.env" "$immich_dir/.env"
 
   # Prompt the user for the PostgreSQL password. If no input, use 'postgres' as default
-  print_info "Enter your PostgreSQL password (default is 'postgres'): "
+  print_info "Enter your PostgreSQL password (default is '$IMMICH_PG_PASS'): "
   read postgres_password
 
   if [ -z "$postgres_password" ]; then
-    postgres_password="postgres"
+    postgres_password="$IMMICH_PG_PASS"
   fi
 
   # Update the .env file with the password

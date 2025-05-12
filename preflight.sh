@@ -8,6 +8,7 @@
 # The script uses utility functions from command.sh to check for and
 # install required software packages.
 
+source ./.env
 source "$(pwd)/utils/paths.sh"
 source "$UTILS_DIR/command.sh"
 source "$UTILS_DIR/print.sh"
