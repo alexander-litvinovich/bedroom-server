@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/zsh
 #
 # Immich Installation Script
 # -------------------------
@@ -7,7 +7,6 @@
 # Source utility scripts
 
 source "$UTILS_DIR/print.sh"
-source "$UTILS_DIR/command.sh"
 
 immich_dir="$HOME/.immich-app/"
 
