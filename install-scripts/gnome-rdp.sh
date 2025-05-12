@@ -11,11 +11,11 @@
 # Source utility scripts
 source "$UTILS_DIR/print.sh"
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-  print_error "This script must be run as root"
-  exit 1
-fi
+# # Check if running as root
+# if [ "$EUID" -ne 0 ]; then
+#   print_error "This script must be run as root"
+#   exit 1
+# fi
 
 # Get the current non-root user who executed the script
 if [ -n "$SUDO_USER" ]; then
@@ -40,12 +40,12 @@ sudo apt-get install -y xrdp || {
 }
 
 # Stop the service if it's running
-systemctl stop gnome-remote-desktop.service
+sudo systemctl stop gnome-remote-desktop.service
 
 # Configure virtual monitor if no monitor is connected
 print_info "Configuring virtual monitor..."
 # Create a dummy monitor config file for Xorg
-cat >/usr/share/X11/xorg.conf.d/10-dummy-monitor.conf <<EOF
+sudo cat >/usr/share/X11/xorg.conf.d/10-dummy-monitor.conf <<EOF
 Section "Device"
     Identifier "DummyDevice"
     Driver "dummy"
@@ -102,7 +102,7 @@ rm "$TMP_SCRIPT"
 
 # Create systemd service to start Gnome Remote Desktop on boot
 print_info "Setting up autostart service..."
-cat >/etc/systemd/system/gnome-remote-desktop-starter.service <<EOF
+sudo cat >/etc/systemd/system/gnome-remote-desktop-starter.service <<EOF
 [Unit]
 Description=Gnome Remote Desktop Starter
 After=network.target
