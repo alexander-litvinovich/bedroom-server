@@ -9,11 +9,12 @@
 # ======================================================
 
 # Source utility scripts
-source "$(dirname "${BASH_SOURCE[0]}")/../utils/paths.sh"
-source "$UTILS_DIR/print.sh"
-source "$UTILS_DIR/command.sh"
+. "$UTILS_DIR/print.sh"
+. "$UTILS_DIR/command.sh"
 
 print_info "Starting Gnome Remote Desktop installation..."
+
+exit
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
