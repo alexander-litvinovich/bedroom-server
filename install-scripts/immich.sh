@@ -5,9 +5,14 @@
 # This script installs and configures the Immich application
 
 # Source utility scripts
-# source "$UTILS_DIR/print.sh"
+
+. "$UTILS_DIR/print.sh"
+. "$UTILS_DIR/command.sh"
 
 immich_dir="$HOME/.immich-app/"
+
+print_info "Creating Immich directory at $immich_dir"
+exit
 
 if [ ! -d "$immich_dir" ]; then
   print_info "Creating Immich directory at $immich_dir"

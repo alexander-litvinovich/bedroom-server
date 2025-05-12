@@ -13,17 +13,17 @@ NC='\033[0m' # No Color
 
 # Print functions
 print_header() {
-  echo -e "\n${BLUE}==== $1 ====${NC}"
+  printf "\n${BLUE}==== %s ====${NC}\n" "$1"
 }
 
 print_success() {
-  echo -e "${GREEN}✓ $1${NC}"
+  printf "${GREEN}✓ %s${NC}\n" "$1"
 }
 
 print_info() {
-  echo -e "${CYAN}→ $1${NC}"
+  printf "${CYAN}→ %s${NC}\n" "$1"
 }
 
 print_skip() {
-  echo -e "${YELLOW}⤷ $1${NC}"
+  printf "${YELLOW}⤷ %s${NC}\n" "$1"
 }
