@@ -7,19 +7,16 @@
 
 # The script uses utility functions from command.sh to check for and
 # install required software packages.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/utils/command.sh"
+
+source "$(dirname "${BASH_SOURCE[0]}")/utils/paths.sh"
+source "$UTILS_DIR/command.sh"
 
 # Software distributed via APT
 sudo apt-get install -y toilet boxes mc zsh
 
-# Install Oh My Zsh
-if [ ! -d "$HOME/.oh-my-zsh" ]; then
-  echo "Installing Oh My Zsh..."
-  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-fi
-
 # Software w/ install bash scripts
+sh "$INSTALLS_DIR/ohmyzsh.sh"
 install "tailscale" "curl -fsSL https://tailscale.com/install.sh | sh"
-install "docker" "./docker.sh"
+install "docker" "$INSTALLS_DIR/docker.sh"
 install "lazydocker" "curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash"
+sh "$INSTALLS_DIR/immich.sh"
