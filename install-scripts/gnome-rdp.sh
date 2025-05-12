@@ -26,15 +26,15 @@ else
 fi
 
 print_info "Installing Gnome Remote Desktop packages..."
-apt-get update || {
+sudo apt-get update || {
   print_error "Failed to update package lists"
   exit 1
 }
-apt-get install -y gnome-remote-desktop || {
+sudo apt-get install -y gnome-remote-desktop || {
   print_error "Failed to install gnome-remote-desktop"
   exit 1
 }
-apt-get install -y xrdp || {
+sudo apt-get install -y xrdp || {
   print_error "Failed to install xrdp"
   exit 1
 }
@@ -72,8 +72,8 @@ EOF
 
 # Configure UFW firewall
 print_info "Configuring firewall..."
-ufw allow 3389/tcp comment "RDP" || { print_warning "Failed to configure firewall for RDP"; }
-ufw reload || { print_warning "Failed to reload firewall"; }
+sudo ufw allow 3389/tcp comment "RDP" || { print_warning "Failed to configure firewall for RDP"; }
+sudo ufw reload || { print_warning "Failed to reload firewall"; }
 
 # Set up GNOME Remote Desktop for the current user
 print_info "Setting up Remote Desktop for user: $CURRENT_USER"
@@ -121,13 +121,13 @@ WantedBy=multi-user.target
 EOF
 
 # Reload systemd configurations
-systemctl daemon-reload
+sudo systemctl daemon-reload
 
 # Enable and start the services
-systemctl enable gnome-remote-desktop-starter.service
-systemctl start gnome-remote-desktop-starter.service
-systemctl enable xrdp
-systemctl start xrdp
+sudo systemctl enable gnome-remote-desktop-starter.service
+sudo systemctl start gnome-remote-desktop-starter.service
+sudo systemctl enable xrdp
+sudo systemctl start xrdp
 
 print_success "Gnome Remote Desktop installation and configuration completed"
 print_info "You can connect to this system using any RDP client"
