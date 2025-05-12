@@ -13,7 +13,7 @@ source "$UTILS_DIR/command.sh"
 source "$UTILS_DIR/print.sh"
 
 # Software distributed via APT
-sudo apt-get install -y toilet boxes mc zsh
+sudo apt-get install -y toilet boxes mc zsh tigervnc-standalone-server tigervnc-common
 
 # Software w/ install bash scripts
 sh "$INSTALLS_DIR/ohmyzsh.sh"
