@@ -1,13 +1,23 @@
 #!/bin/bash
+#
+# Immich Installation Script
+# -------------------------
+# This script installs and configures the Immich application
 
-# Install immich app
-
+# Source utility scripts
 source "$(dirname "${BASH_SOURCE[0]}")/../utils/paths.sh"
+source "$UTILS_DIR/print.sh"
+
 IMMICH_DIR="$HOME/.immich-app/"
 
 if [ ! -d "$IMMICH_DIR" ]; then
+  print_info "Creating Immich directory at $IMMICH_DIR"
   mkdir -p $IMMICH_DIR
+
+  print_info "Downloading latest Immich docker-compose.yml"
   curl -L -o "$IMMICH_DIR/docker-compose.yml" https://github.com/immich-app/immich/releases/latest/download/docker-compose.yml
+
+  print_info "Copying example .env file"
   cp "$ASSETS_DIR/immich.example.env" "$IMMICH_DIR/.env"
 
   # Prompt the user for the PostgreSQL password. If no input, use 'postgres' as default
@@ -20,5 +30,7 @@ if [ ! -d "$IMMICH_DIR" ]; then
   # Update the .env file with the password
   sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$postgres_password/" "$IMMICH_DIR/.env"
 
-  echo "PostgreSQL password has been set in the .env file."
+  print_success "PostgreSQL password has been set in the .env file."
+else
+  print_info "Immich directory already exists at $IMMICH_DIR"
 fi
