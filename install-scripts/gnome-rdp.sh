@@ -9,6 +9,7 @@
 # ======================================================
 
 # Source paths and utility scripts
+source "$(dirname "${BASH_SOURCE[0]}")/../utils/paths.sh"
 source "$UTILS_DIR/print.sh"
 
 # Function to check if we have sudo permissions
@@ -34,8 +35,8 @@ sudo apt-get update || {
   print_error "Failed to update package lists"
   exit 1
 }
-sudo apt-get install -y gnome-remote-desktop || {
-  print_error "Failed to install gnome-remote-desktop"
+sudo apt-get install -y gnome-remote-desktop openssl || {
+  print_error "Failed to install gnome-remote-desktop and dependencies"
   exit 1
 }
 sudo apt-get install -y xrdp || {
@@ -78,14 +79,14 @@ EOF
 # Configure UFW firewall
 print_info "Configuring firewall..."
 sudo ufw allow 3389/tcp comment "RDP" || {
-  print_error "Failed to configure firewall for RDP"
+  print_warning "Failed to configure firewall for RDP"
 }
 sudo ufw reload || {
-  print_error "Failed to reload firewall"
+  print_warning "Failed to reload firewall"
 }
 
-# Set up GNOME Remote Desktop for the current user
-print_info "Setting up Remote Desktop for user: $CURRENT_USER"
+# Generate RDP certificates
+print_info "Setting up RDP certificates..."
 
 # Create a temporary script to run commands as the current user
 TMP_SCRIPT=$(mktemp)
@@ -95,19 +96,47 @@ export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$(id -u)/bus
 export XDG_RUNTIME_DIR=/run/user/\$(id -u)
 export DISPLAY=:1
 
+# Define certificate directory using $HOME
+CERT_DIR="\$HOME/.local/share/gnome-remote-desktop/rdp"
+
+# Create certificate directory if it doesn't exist
+mkdir -p "\$CERT_DIR"
+
+# Generate self-signed certificates for RDP
+if [ ! -f "\$CERT_DIR/server.key" ] || [ ! -f "\$CERT_DIR/server.crt" ]; then
+    openssl req -x509 -newkey rsa:3072 -days 3650 \
+    -keyout "\$CERT_DIR/server.key" \
+    -out "\$CERT_DIR/server.crt" \
+    -nodes -subj "/CN=\$(hostname)" 2>/dev/null
+    
+    # Correct permissions
+    chmod 600 "\$CERT_DIR/server.key"
+    chmod 644 "\$CERT_DIR/server.crt"
+fi
+
 # Enable RDP
+grdctl rdp disable
+sleep 1
 grdctl rdp enable
 
 # Set RDP credentials
-grdctl rdp set-credentials ${CURRENT_USER} 12345678
+grdctl rdp set-credentials "${CURRENT_USER}" 12345678
 
 # Enable control
 gsettings set org.gnome.desktop.remote-desktop.rdp screen-share-mode 'control'
+
+# Enable certificate settings (force a reset of certificates)
+gsettings set org.gnome.desktop.remote-desktop.rdp tls-cert "'\$CERT_DIR/server.crt'"
+gsettings set org.gnome.desktop.remote-desktop.rdp tls-key "'\$CERT_DIR/server.key'"
+
+# Ensure the certificate directory has the right permissions
+chmod 700 "\$CERT_DIR"
 EOF
 
 chmod +x "$TMP_SCRIPT"
 
 # If running as the user already, just run directly, otherwise use sudo
+print_info "Generating certificates and configuring RDP..."
 if [ "$CURRENT_USER" = "$(whoami)" ]; then
   bash "$TMP_SCRIPT"
 else
@@ -149,7 +178,7 @@ print_success "Gnome Remote Desktop installation and configuration completed"
 print_info "You can connect to this system using any RDP client"
 print_info "Username: $CURRENT_USER"
 print_info "Password: 12345678"
-print_error "Please change the default password for security reasons"
+print_warning "Please change the default password for security reasons"
 print_info "Default RDP port: 3389"
 
 exit 0
