@@ -8,7 +8,7 @@
 # The script uses utility functions from command.sh to check for and
 # install required software packages.
 
-source "$(dirname "${BASH_SOURCE[0]}")/utils/paths.sh"
+source "$(pwd)/utils/paths.sh"
 source "$UTILS_DIR/command.sh"
 
 # Software distributed via APT
