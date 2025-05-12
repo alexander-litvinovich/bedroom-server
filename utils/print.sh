@@ -27,3 +27,7 @@ print_info() {
 print_skip() {
   printf "${YELLOW}⤷ %s${NC}\n" "$1"
 }
+
+print_error() {
+  printf "${YELLOW}× %s${NC}\n" "$1"
+}
