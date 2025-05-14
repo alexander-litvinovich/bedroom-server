@@ -13,14 +13,13 @@ The list of software to be running:
 - [x] Change MOTD
 - [x] Tailscale
 - [x] Pi-hole
+- [x] NGINX Proxy Manager
 
 TBD:
 
 - [ ] Ollama
 - [ ] Some private cloud storage
 - [ ] Git repo (gitea?)
-- [ ] Photo album storing service
-- [ ] DNSMasq for making DNS records for local network
 
 ## How to install and make it run
 
