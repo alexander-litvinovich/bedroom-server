@@ -28,7 +28,8 @@ if [ ! -d "$immich_dir" ]; then
   fi
 
   # Update the .env file with the password
-  sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$postgres_password/" "$immich_dir/.env"
+  sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$postgres_password/" "$immich_dir/.env" ||
+    echo "DB_PASSWORD=$postgres_password" "$immich_dir/.env"
 
   print_success "PostgreSQL password has been set in the .env file."
 else

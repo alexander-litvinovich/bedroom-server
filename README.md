@@ -12,6 +12,7 @@ The list of software to be running:
 - [x] zsh + Oh My Zsh
 - [x] Change MOTD
 - [x] Tailscale
+- [x] Pi-hole
 
 TBD:
 
@@ -26,3 +27,29 @@ TBD:
 Start by installing packages from `preflight.sh`
 
 To enable SSH access use `ssh.sh` it installs OpenSSH Uncomplicated Firewall (UFW) Keychain. Set up SSH server as a daemon, opens 22 port in UFW and applying SSH configuration from `assets/ssh_config`. Also it adds SSH agent autostart to `~/.zshrc`.
+
+## Mount Drives
+
+Make sure you have exFAT support installed:
+
+```bash
+sudo apt install exfat-fuse exfat-utils
+```
+
+Create the mount point directory and change ownership of the mount point to your user:
+
+```bash
+sudo mkdir -p "/media/$USER/storage" && sudo chown $USER:$USER "/media/$USER/storage"
+```
+
+Add the line to fstab:
+
+```bash
+sudo nano /etc/fstab
+```
+
+Test the mount:
+
+```bash
+sudo mount -a
+```
