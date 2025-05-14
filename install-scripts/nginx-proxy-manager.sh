@@ -9,7 +9,6 @@ source "$UTILS_DIR/print.sh"
 
 # Constants
 nginx_proxy_manager_dir="$HOME/.nginx-proxy-manager"
-pihole_env_file="$nginx_proxy_manager_dir/.env"
 
 print_header "NGINX Proxy Manager Installation"
 
