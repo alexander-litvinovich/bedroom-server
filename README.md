@@ -53,3 +53,15 @@ Test the mount:
 ```bash
 sudo mount -a
 ```
+
+## Ports
+
+| Port | Service                          |
+| ---- | -------------------------------- |
+| 53   | Pi-Hole DNS                      |
+| 80   | NGINX Proxy Manager (HTTP)       |
+| 81   | NGINX Proxy Manager Admin (HTTP) |
+| 443  | NGINX Proxy Manager (HTTPS)      |
+| 2283 | Immich (HTTP)                    |
+| 8080 | Pi-Hole (HTTP)                   |
+| 8443 | Pi-Hole (HTTPS)                  |
