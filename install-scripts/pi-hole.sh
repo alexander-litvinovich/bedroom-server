@@ -5,7 +5,6 @@
 #
 
 # Source utility scripts
-source "$(dirname "${BASH_SOURCE[0]}")/../utils/paths.sh"
 source "$UTILS_DIR/print.sh"
 
 # Constants
