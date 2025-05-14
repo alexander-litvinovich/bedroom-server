@@ -33,8 +33,8 @@ if [ ! -d "$pihole_dir" ]; then
   fi
 
   # Update the .env file with the password
-  sed -i "s/FTLCONF_webserver_api_password=.*$/FTLCONF_webserver_api_password=$pihole_password/" "$pihole_env_file" ||
-    echo "FTLCONF_webserver_api_password=$pihole_password" >>"$pihole_env_file"
+  sed -i "s/PIHOLE_PASS=.*$/PIHOLE_PASS=$pihole_password/" "$pihole_env_file" ||
+    echo "PIHOLE_PASS=$pihole_password" >>"$pihole_env_file"
 
   print_success "Pi-hole password has been set in the .env file."
 
