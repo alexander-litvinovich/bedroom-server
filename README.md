@@ -17,9 +17,11 @@ The list of software to be running:
 
 TBD:
 
+- [ ] n8n
+- [ ] Nextcloud
 - [ ] Ollama
 - [ ] Some private cloud storage
-- [ ] Git repo (gitea?)
+- [ ] Git repo (Gitea)
 
 ## How to install and make it run
 
