@@ -1,0 +1,6 @@
+[Allow NetworkManager for sudo users]
+Identity=unix-group:sudo
+Action=org.freedesktop.NetworkManager.*
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes

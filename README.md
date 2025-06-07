@@ -14,6 +14,7 @@ The list of software to be running:
 - [x] Tailscale
 - [x] Pi-hole
 - [x] NGINX Proxy Manager
+- [x] XRDP server
 
 TBD:
 
@@ -66,3 +67,4 @@ sudo mount -a
 | 2283 | Immich (HTTP)                    |
 | 8080 | Pi-Hole (HTTP)                   |
 | 8443 | Pi-Hole (HTTPS)                  |
+| 3389 | XRDP Server                      |
