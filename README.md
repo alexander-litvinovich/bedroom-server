@@ -15,10 +15,10 @@ The list of software to be running:
 - [x] Pi-hole
 - [x] NGINX Proxy Manager
 - [x] XRDP server
+- [x] n8n
 
 TBD:
 
-- [ ] n8n
 - [ ] Nextcloud
 - [ ] Ollama
 - [ ] Some private cloud storage
@@ -68,3 +68,11 @@ sudo mount -a
 | 8080 | Pi-Hole (HTTP)                   |
 | 8443 | Pi-Hole (HTTPS)                  |
 | 3389 | XRDP Server                      |
+
+## Troubleshooting
+
+When cannot connect to RDP try to terminate user session
+
+```bash
+loginctl terminate-user "$XRDP_USER"
+```
