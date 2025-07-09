@@ -31,6 +31,12 @@ echo "Memory usage: $(free -m | awk '/Mem/{printf("%.2f%%", $3/$2*100)}')"
 echo "Disk usage: $(df -h / | awk '/\// {print $5}')"
 echo "Last login: $(last -n 1 | head -n 1 | awk '{print $4, $5, $6, $7}')"
 echo "Uptime: $(uptime -p)"
+echo ""
+echo "Web Services:"
+echo "http://immich.myhome"
+echo "http://n8n.myhome"
+echo "http://pihole.myhome"
+echo "http://proxymanager.myhome"
 
 # Check for system updates (if apt is available)
 if command -v apt &>/dev/null; then
