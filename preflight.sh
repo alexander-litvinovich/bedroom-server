@@ -24,5 +24,5 @@ install "lazydocker" "curl https://raw.githubusercontent.com/jesseduffield/lazyd
 zsh -c "export IMMICH_PG_PASS=\"$IMMICH_PG_PASS\" && \"$INSTALLS_DIR/immich.sh\""
 zsh -c "export PIHOLE_PASS=\"$PIHOLE_PASS\" && \"$INSTALLS_DIR/pi-hole.sh\""
 zsh "$INSTALLS_DIR/nginx-proxy-manager.sh"
-zsh "export XRDP_USER=\"$XRDP_USER\" && \"$INSTALLS_DIR/xrdp.sh\""
-zsh "export N8N_DATA_DIR=\"$N8N_DATA_DIR\" && \"$INSTALLS_DIR/n8n.sh\""
+zsh -c "export XRDP_USER=\"$XRDP_USER\" && \"$INSTALLS_DIR/xrdp.sh\""
+zsh -c "export N8N_DATA_DIR=\"$N8N_DATA_DIR\" && \"$INSTALLS_DIR/n8n.sh\""
