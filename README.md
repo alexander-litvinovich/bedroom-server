@@ -16,13 +16,16 @@ The list of software to be running:
 - [x] NGINX Proxy Manager
 - [x] XRDP server
 - [x] n8n
+- [x] Ollama
 
 TBD:
 
-- [ ] Nextcloud
-- [ ] Ollama
-- [ ] Some private cloud storage
+- [ ] Vaultwarden https://github.com/dani-garcia/vaultwarden
+- [ ] Syncthing
 - [ ] Git repo (Gitea)
+- [ ] Traefik
+
+Check the list: https://vas3k.blog/notes/homelab_2022/
 
 ## How to install and make it run
 
