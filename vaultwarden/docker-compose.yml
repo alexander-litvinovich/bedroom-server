@@ -1,0 +1,40 @@
+services:
+  vaultwarden:
+    image: vaultwarden/server:1.32.5
+    container_name: vaultwarden
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DOMAIN: ${VW_PUBLIC_URL}
+      SIGNUPS_ALLOWED: ${VW_SIGNUPS_ALLOWED:-false}
+      ADMIN_TOKEN: ${VW_ADMIN_TOKEN}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${VW_DATA_DIR}:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/alive"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  cloudflared:
+    image: cloudflare/cloudflared:2024.1.5
+    container_name: cloudflared
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    depends_on:
+      vaultwarden:
+        condition: service_healthy
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${VW_CF_TUNNEL_TOKEN}
+
+  # Utility container for diagnostics
+  tester:
+    image: curlimages/curl:8.5.0
+    container_name: vw-tester
+    profiles: ["debug"]
+    entrypoint: ["sleep", "infinity"]

@@ -196,7 +196,7 @@ test -d "$VW_DATA_DIR" && echo "OK" || echo "FAIL: create directory first"
 
 ---
 
-## Task 07 — Создать `docker-compose.yml`
+## Task 07 — Создать `docker-compose.yml` ✅
 
 ### Steps
 
@@ -476,14 +476,24 @@ rclone copy "${BACKUP_DIR}/vaultwarden_${DATE}.tar.gz" remote:vaultwarden-backup
 
 ## Task 15 — Диагностика (troubleshooting)
 
-### Логи сервисов
+### Быстрая диагностика
+
+Запустить скрипт `debug.sh`:
+
+```bash
+./debug.sh
+```
+
+Скрипт проверит статус сервисов, протестирует connectivity и покажет логи.
+
+### Логи сервисов (вручную)
 
 ```bash
 docker compose logs --tail=100 vaultwarden
 docker compose logs --tail=100 cloudflared
 ```
 
-### Проверка сети внутри compose
+### Проверка сети внутри compose (вручную)
 
 ```bash
 docker compose --profile debug up -d tester
@@ -538,6 +548,7 @@ bedroom-server/
 ├── .env                     # секреты (не коммитить!)
 └── vaultwarden/
     ├── docker-compose.yml
+    ├── debug.sh             # диагностика (./debug.sh)
     └── backup.sh
 
 # Данные хранятся отдельно (путь из VW_DATA_DIR):
