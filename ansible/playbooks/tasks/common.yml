@@ -1,0 +1,28 @@
+---
+# Common system setup tasks
+
+- name: Install base packages
+  apt:
+    name:
+      - toilet
+      - boxes
+      - mc
+      - zsh
+      - git
+      - curl
+      - wget
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Configure timezone
+  timezone:
+    name: "{{ timezone }}"
+
+- name: Create necessary directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /opt/scripts
+    - /opt/data

@@ -1,0 +1,24 @@
+---
+- name: Configure Bedroom Server
+  hosts: bedroom_servers
+  become: true
+
+  pre_tasks:
+    - name: Update package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+  tasks:
+    - name: Include common setup tasks
+      include_tasks: tasks/common.yml
+      tags: common
+
+    - name: Include power management setup tasks
+      include_tasks: tasks/power-management.yml
+      tags: power_management
+
+    - name: Include Docker setup tasks
+      include_tasks: tasks/docker.yml
+      tags: docker

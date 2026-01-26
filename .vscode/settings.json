@@ -8,5 +8,6 @@
     "titleBar.inactiveForeground": "#e7e7e799"
   },
   "peacock.color": "#444444",
-  "cSpell.ignoreWords": ["polkit", "xrdp"]
+  "cSpell.ignoreWords": ["polkit", "xrdp"],
+  "ansible.python.interpreterPath": "/Users/alex/.pyenv/versions/3.11.7/bin/python"
 }

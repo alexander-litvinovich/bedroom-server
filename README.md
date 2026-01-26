@@ -24,6 +24,7 @@ TBD:
 - [ ] Syncthing
 - [ ] Git repo (Gitea)
 - [ ] Traefik
+- [ ] Kavita for books
 
 Check the list: https://vas3k.blog/notes/homelab_2022/
 

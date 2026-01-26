@@ -6,6 +6,16 @@ This repository contains bash scripts for server management and automation that 
 
 ## Development Guidelines
 
+### Dev Log
+
+Keep track of edits in `/dev-log.md` in the following format:
+
+```
+### Title
+DD/MM/YYYY
+Changes excerpt 1-3 sentences with valuable details.
+```
+
 ### Tech Stack
 
 - **Primary Language**: Bash scripts

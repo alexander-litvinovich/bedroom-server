@@ -1,3 +1,6 @@
 .env
 .DS_Store
 *.test.sh
+
+# Ansible vault password file
+.vault_pass.txt

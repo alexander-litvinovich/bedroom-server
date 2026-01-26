@@ -1,0 +1,26 @@
+---
+# Global variables for all hosts
+
+timezone: "Europe/Helsinki"
+
+# Service configuration
+services:
+  immich:
+    db_password: "{{ lookup('env', 'IMMICH_PG_PASS')}}"
+  pi_hole:
+    password: "{{ lookup('env', 'PIHOLE_PASS')}}"
+  n8n:
+    encryption_key: "{{ lookup('env', 'N8N_ENCRYPTION_KEY')}}"
+    jwt_secret: "{{ lookup('env', 'N8N_JWT_SECRET')}}"
+    data_dir: "{{ lookup('env', 'N8N_DATA_DIR')}}"
+
+# User configuration
+xrdp_user: "{{ lookup('env', 'XRDP_USER')}}"
+xrdp_password: "{{ lookup('env', 'XRDP_PASSWORD')}}"
+
+# Git configuration
+git_user_name: "{{ lookup('env', 'GIT_USER_NAME')}}"
+git_email: "{{ lookup('env', 'GIT_EMAIL')}}"
+
+# Tailscale configuration
+tailscale_key: "{{ lookup('env', 'TAILSCALE_KEY') }"

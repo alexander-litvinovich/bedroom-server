@@ -1,0 +1,171 @@
+---
+# Power Management Tasks for Ubuntu
+# Purpose: Configure Ubuntu power settings to:
+#   1. Prevent system sleep/suspend
+#   2. Configure power button to trigger system shutdown
+
+- name: Ensure required directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/systemd/sleep.conf.d
+    - /etc/systemd/logind.conf.d
+  become: true
+
+# Desktop Environment Settings
+- name: Check if GNOME is installed
+  command: which gsettings
+  register: gsettings_check
+  failed_when: false
+  changed_when: false
+  become: false
+
+- name: Get current user
+  command: who | awk '{print $1}' | head -1
+  register: current_user
+  changed_when: false
+  become: false
+  when: gsettings_check.rc == 0
+
+- name: Configure GNOME power settings - AC
+  become: true
+  become_user: "{{ current_user.stdout }}"
+  command: gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+  when: gsettings_check.rc == 0
+
+- name: Configure GNOME power settings - Battery
+  become: true
+  become_user: "{{ current_user.stdout }}"
+  command: gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'
+  when: gsettings_check.rc == 0
+
+- name: Check if X11 is available
+  shell: command -v xset && echo "$DISPLAY"
+  register: xset_check
+  failed_when: false
+  changed_when: false
+  become: false
+
+- name: Disable X11 screen saver
+  command: xset s off
+  when: xset_check.rc == 0 and xset_check.stdout_lines|length > 1
+  become: false
+
+- name: Disable X11 DPMS features
+  command: xset -dpms
+  when: xset_check.rc == 0 and xset_check.stdout_lines|length > 1
+  become: false
+
+- name: Disable X11 screen blanking
+  command: xset s noblank
+  when: xset_check.rc == 0 and xset_check.stdout_lines|length > 1
+  become: false
+
+# Systemd Settings
+- name: Configure systemd sleep prevention
+  copy:
+    dest: /etc/systemd/sleep.conf.d/nosleep.conf
+    content: |
+      [Sleep]
+      AllowSuspend=no
+      AllowHibernation=no
+      AllowSuspendThenHibernate=no
+      AllowHybridSleep=no
+    mode: '0644'
+  become: true
+
+- name: Configure systemd suspend prevention
+  copy:
+    dest: /etc/systemd/logind.conf.d/nosuspend.conf
+    content: |
+      [Login]
+      HandleSuspendKey=ignore
+      HandleLidSwitch=ignore
+      HandleLidSwitchExternalPower=ignore
+      IdleAction=ignore
+    mode: '0644'
+  become: true
+
+# Power Button Configuration
+- name: Configure power button behavior
+  copy:
+    dest: /etc/systemd/logind.conf.d/power-button.conf
+    content: |
+      [Login]
+      PowerButtonAction=poweroff
+    mode: '0644'
+  become: true
+
+- name: Check if main logind.conf exists
+  stat:
+    path: /etc/systemd/logind.conf
+  register: logind_conf
+  become: true
+
+- name: Backup original logind.conf
+  copy:
+    src: /etc/systemd/logind.conf
+    dest: /etc/systemd/logind.conf.bak
+    remote_src: yes
+  when: logind_conf.stat.exists
+  become: true
+
+- name: Check if PowerButtonAction is already set in logind.conf
+  shell: grep -q "^PowerButtonAction=" /etc/systemd/logind.conf
+  register: power_button_check
+  failed_when: false
+  changed_when: false
+  when: logind_conf.stat.exists
+  become: true
+
+- name: Update PowerButtonAction in logind.conf if it exists
+  lineinfile:
+    path: /etc/systemd/logind.conf
+    regexp: '^PowerButtonAction=.*'
+    line: 'PowerButtonAction=poweroff'
+  when: logind_conf.stat.exists and power_button_check.rc == 0
+  become: true
+
+- name: Add PowerButtonAction to logind.conf if it doesn't exist
+  lineinfile:
+    path: /etc/systemd/logind.conf
+    line: 'PowerButtonAction=poweroff'
+  when: logind_conf.stat.exists and power_button_check.rc != 0
+  become: true
+
+# Server-specific Settings
+- name: Check if this is a server (no desktop environment)
+  shell: |
+    if ! command -v gnome-session &>/dev/null && ! command -v xset &>/dev/null; then
+      echo "server"
+    else
+      echo "desktop"
+    fi
+  register: environment_check
+  changed_when: false
+  become: false
+
+- name: Mask systemd sleep targets on server
+  systemd:
+    name: "{{ item }}"
+    masked: yes
+  loop:
+    - sleep.target
+    - suspend.target
+    - hibernate.target
+    - hybrid-sleep.target
+  when: environment_check.stdout == "server"
+  become: true
+
+- name: Reload systemd to apply changes
+  systemd:
+    daemon_reload: yes
+  become: true
+
+- name: Restart systemd-logind to apply changes
+  systemd:
+    name: systemd-logind
+    state: restarted
+  become: true
