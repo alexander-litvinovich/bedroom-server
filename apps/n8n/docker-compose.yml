@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: docker.n8n.io/n8nio/n8n:1.72.1
+    image: docker.n8n.io/n8nio/n8n:2.4.4
     container_name: n8n
     restart: unless-stopped
     env_file:
@@ -19,6 +19,7 @@ services:
       - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE:-false}
       - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-}
+      - N8N_SECURE_COOKIE=${N8N_SECURE_COOKIE:-true}
       - DB_TYPE=sqlite
       - DB_SQLITE_DATABASE=/data/database.sqlite
       - N8N_USER_FOLDER=/data

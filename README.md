@@ -17,10 +17,10 @@ The list of software to be running:
 - [x] XRDP server
 - [x] n8n
 - [x] Ollama
+- [x] Vaultwarden https://github.com/dani-garcia/vaultwarden
 
 TBD:
 
-- [ ] Vaultwarden https://github.com/dani-garcia/vaultwarden
 - [ ] Syncthing
 - [ ] Git repo (Gitea)
 - [ ] Traefik
