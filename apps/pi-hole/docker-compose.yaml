@@ -1,0 +1,32 @@
+# More info at https://github.com/pi-hole/docker-pi-hole/ and https://docs.pi-hole.net/
+services:
+  pihole:
+    image: pihole/pihole:latest
+    container_name: pihole
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    ports:
+      # DNS
+      - "53:53/tcp"
+      - "53:53/udp"
+      # Web interface
+      - "8080:80/tcp"
+      - "8443:443/tcp"
+      # Uncomment if using Pi-hole as DHCP server
+      #- "67:67/udp"
+    environment:
+      TZ: ${TZ:-UTC}
+      FTLCONF_webserver_api_password: ${PIHOLE_PASS}
+      FTLCONF_dns_listeningMode: ${PIHOLE_DNS_LISTENING_MODE:-all}
+    volumes:
+      - ${PIHOLE_DATA_DIR}:/etc/pihole
+    cap_add:
+      # Required for DHCP server functionality
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/admin"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
