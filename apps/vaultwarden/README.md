@@ -139,7 +139,7 @@ In Bitwarden client (desktop/mobile/browser extension):
 ## Configuration Files
 
 - [`docker-compose.yml`](./docker-compose.yml) - Service definitions (vaultwarden + cloudflared)
-- `../.env` - Environment variables (not in repository, see `.env.example`)
+- Repository root `.env` - Environment variables (not in repository, see `.env.example`)
 
 ## Updating Vaultwarden
 

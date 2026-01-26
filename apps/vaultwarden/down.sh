@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${APP_DIR}/../.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
-COMPOSE_FILE="${ROOT_DIR}/vaultwarden/docker-compose.yml"
+COMPOSE_FILE="${APP_DIR}/docker-compose.yml"
 
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" down
