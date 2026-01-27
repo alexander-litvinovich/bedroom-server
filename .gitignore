@@ -1,3 +1,4 @@
 .env
+!apps/immich/.env
 .DS_Store
 *.test.sh

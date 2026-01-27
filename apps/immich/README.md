@@ -34,25 +34,33 @@ Adjust paths as needed for your setup.
 ### 2. Configure Environment File
 
 1. Copy the example environment file:
+
    ```bash
-   cd /Users/alex/dev/bedroom-server
-   cp assets/immich.example.env apps/immich/.env
+   cd /home/alex/dev/bedroom-server
+   cp .env.example .env
+
+   # Ensure apps/immich/.env points at the repo root .env
+   ln -sf ../.env apps/immich/.env
    ```
 
 2. Edit `apps/immich/.env` and configure:
+
    ```dotenv
+   # Container path for Immich media (mounted to UPLOAD_LOCATION)
+   IMMICH_MEDIA_LOCATION=/data
+
    # The location where your uploaded files are stored
    UPLOAD_LOCATION=/media/storage/immich/library
-   
+
    # The location where your database files are stored (use SSD!)
    DB_DATA_LOCATION=/media/storage/immich/postgres
-   
+
    # Timezone
    TZ=Europe/Helsinki
-   
+
    # Immich version
    IMMICH_VERSION=release
-   
+
    # Database setup
    DB_USERNAME=postgres
    DB_DATABASE_NAME=immich
@@ -72,6 +80,7 @@ cd apps/immich
 ```
 
 **Check status:**
+
 ```bash
 docker compose ps
 docker compose logs -f immich-server
@@ -89,25 +98,27 @@ Open in browser: http://localhost:2283
 ### 5. Connect Mobile Apps
 
 Download the Immich app:
+
 - [iOS App Store](https://apps.apple.com/app/immich/id1613945652)
 - [Google Play Store](https://play.google.com/store/apps/details?id=app.alextran.immich)
 - [F-Droid](https://f-droid.org/packages/app.alextran.immich/)
 
 In the app:
+
 1. Set Server URL: `http://your-server-ip:2283`
 2. Login with your credentials
 3. Enable automatic backup in settings
 
 ## Ports
 
-| Port | Description |
-|------|-------------|
+| Port | Description           |
+| ---- | --------------------- |
 | 2283 | Web interface and API |
 
 ## Configuration Files
 
 - [`docker-compose.yml`](./docker-compose.yml) - Service definitions (downloaded from Immich releases)
-- `.env` - Environment variables (local, not in repository)
+- `.env` - Environment variables (symlinked at `apps/immich/.env`)
 - Repository root `.env.example` - Reference for available variables
 
 ## Updating Immich
@@ -150,13 +161,15 @@ docker compose pull
 ### Services Not Starting
 
 Check logs for errors:
+
 ```bash
 docker compose logs immich-server
 docker compose logs database
 ```
 
 Common issues:
-- Missing `.env` file - copy from `assets/immich.example.env`
+
+- Missing `.env` file - copy from `.env.example`
 - Invalid paths in `.env` - ensure directories exist and are writable
 - Port 2283 already in use
 
@@ -165,6 +178,7 @@ Common issues:
 The ML container downloads models on first start (~1-2GB). Give it time.
 
 If it keeps crashing:
+
 ```bash
 # Check logs
 docker compose logs immich-machine-learning
@@ -194,32 +208,38 @@ Ensure `DB_PASSWORD` in `.env` matches across all uses.
 ## Useful Commands
 
 **Start stack:**
+
 ```bash
 ./up.sh
 ```
 
 **Stop stack:**
+
 ```bash
 ./down.sh
 ```
 
 **View logs:**
+
 ```bash
 docker compose logs -f              # follow all logs
 docker compose logs immich-server   # specific service
 ```
 
 **Restart:**
+
 ```bash
 ./down.sh && ./up.sh
 ```
 
 **Update to latest:**
+
 ```bash
 ./update.sh && docker compose pull && ./up.sh
 ```
 
 **Check service health:**
+
 ```bash
 docker compose ps
 ```
@@ -238,6 +258,7 @@ Immich data is stored **outside the repository** at the paths specified in `.env
 ```
 
 **Why outside the repo?**
+
 - **Security:** Prevent accidental commits of personal photos
 - **Flexibility:** Can use separate disk/partition for media
 - **Performance:** Database on SSD, media on larger HDD if needed
@@ -255,6 +276,7 @@ See: https://immich.app/docs/features/hardware-transcoding
 ## External Libraries
 
 You can add existing photo folders as external libraries:
+
 1. Mount additional volumes in `docker-compose.yml` under `immich-server`
 2. In Immich web UI: Administration → External Libraries → Create Library
 
