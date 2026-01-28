@@ -79,3 +79,10 @@ When cannot connect to RDP try to terminate user session
 ```bash
 loginctl terminate-user "$XRDP_USER"
 ```
+
+## Web Services currently running in home network
+
+- http://immich.myhome
+- http://n8n.myhome
+- http://pihole.myhome
+- http://proxymanager.myhome
