@@ -19,5 +19,5 @@ services:
     # DISABLE_IPV6: 'true'
 
     volumes:
-      - ./data:/data
-      - ./letsencrypt:/etc/letsencrypt
+      - ${NGINX_PROXY_MANAGER_VOLUMES}/data:/data
+      - ${NGINX_PROXY_MANAGER_VOLUMES}/letsencrypt:/etc/letsencrypt
