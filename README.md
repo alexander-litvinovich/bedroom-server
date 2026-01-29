@@ -18,6 +18,7 @@ The list of software to be running:
 - [x] n8n
 - [x] Ollama
 - [x] Vaultwarden https://github.com/dani-garcia/vaultwarden
+- [x] Kavita
 
 TBD:
 
@@ -83,6 +84,7 @@ loginctl terminate-user "$XRDP_USER"
 ## Web Services currently running in home network
 
 - http://immich.myhome
+- http://kavita.myhome
 - http://n8n.myhome
 - http://pihole.myhome
 - http://proxymanager.myhome

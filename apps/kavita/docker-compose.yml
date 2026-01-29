@@ -1,0 +1,14 @@
+services:
+  kavita:
+    image: jvmilazz0/kavita:latest
+    container_name: kavita
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      TZ: ${TZ:-UTC}
+    ports:
+      - "5000:5000"
+    volumes:
+      - ${KAVITA_BOOKS}:/books
+      - ${KAVITA_CONFIG}:/kavita/config
