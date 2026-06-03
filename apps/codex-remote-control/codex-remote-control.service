@@ -1,0 +1,25 @@
+[Unit]
+Description=Codex remote-control daemon
+Documentation=https://github.com/openai/codex
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alex
+Group=alex
+Environment=HOME=/home/alex
+Environment=CODEX_REMOTE_CONTROL_USER=alex
+Environment=CODEX_REMOTE_CONTROL_HOME=/home/alex
+Environment=CODEX_REMOTE_CONTROL_SHELL=/usr/bin/zsh
+Environment=TERM=xterm-256color
+Environment=NO_COLOR=1
+WorkingDirectory=/home/alex/dev/bedroom-server
+ExecStart=/home/alex/dev/bedroom-server/apps/codex-remote-control/codex-remote-control.sh start
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
