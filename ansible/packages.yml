@@ -1,0 +1,24 @@
+---
+- name: Install command-line tools
+  hosts: all
+  connection: local
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Validate the target host
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+        fail_msg: This playbook supports Ubuntu only
+
+  tasks:
+    - name: Install command-line packages
+      ansible.builtin.apt:
+        name:
+          - gh
+          - git
+          - mc
+          - zsh
+        state: present
+        update_cache: true

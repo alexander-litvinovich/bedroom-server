@@ -30,9 +30,22 @@ Check the list: https://vas3k.blog/notes/homelab_2022/
 
 ## How to install and make it run
 
-Start by installing packages from `preflight.sh`
+Install Ansible and run the general package and SSH playbooks locally:
 
-To enable SSH access use `ssh.sh` it installs OpenSSH Uncomplicated Firewall (UFW) Keychain. Set up SSH server as a daemon, opens 22 port in UFW and applying SSH configuration from `assets/ssh_config`. Also it adds SSH agent autostart to `~/.zshrc`.
+```bash
+sudo apt update
+sudo apt install -y ansible-core
+ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/packages.yml
+ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/ssh.yml
+```
+
+`ansible/packages.yml` installs Git, GitHub CLI, Zsh, and Midnight Commander.
+`ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
+allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
+the current user.
+
+Run `preflight.sh` afterward for the software that has not yet been converted to
+Ansible.
 
 ## Codex worker VMs
 

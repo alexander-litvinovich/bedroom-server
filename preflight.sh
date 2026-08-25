@@ -13,8 +13,8 @@ source "$(pwd)/utils/paths.sh"
 source "$UTILS_DIR/command.sh"
 source "$UTILS_DIR/print.sh"
 
-# Software distributed via APT
-sudo apt-get install -y toilet boxes mc zsh
+# Software distributed via APT and not yet managed by Ansible
+sudo apt-get install -y toilet boxes
 
 # Software w/ install bash scripts
 zsh "$INSTALLS_DIR/ohmyzsh.sh"
