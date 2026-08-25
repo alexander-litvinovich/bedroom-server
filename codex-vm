@@ -4,6 +4,9 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 TEMP_DIR=""
 ROLLBACK_VM=""
+STORAGE_MOUNT=""
+STORAGE_FSTYPE=""
+STORAGE_SIZE_BYTES=0
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -33,6 +36,11 @@ load_config() {
   CODEX_VM_STORAGE_POOL="${CODEX_VM_STORAGE_POOL:-codex-workers}"
   CODEX_VM_PROFILE="${CODEX_VM_PROFILE:-codex-worker}"
   CODEX_VM_IMAGE="${CODEX_VM_IMAGE:-codex-worker}"
+  CODEX_VM_HOST_INTERFACE="${CODEX_VM_HOST_INTERFACE:-codex-vm-host}"
+  CODEX_VM_STORAGE_SOURCE="${CODEX_VM_STORAGE_SOURCE:-}"
+  CODEX_VM_STORAGE_SIZE="${CODEX_VM_STORAGE_SIZE:-60GiB}"
+  CODEX_VM_DISK_SIZE="${CODEX_VM_DISK_SIZE:-20GiB}"
+  CODEX_VM_SSH_PUBLIC_KEY="${CODEX_VM_SSH_PUBLIC_KEY:-$HOME/.ssh/codex_workers.pub}"
   CODEX_VM_SSH_IDENTITY="${CODEX_VM_SSH_IDENTITY:-~/.ssh/codex_workers}"
 }
 
@@ -75,17 +83,19 @@ int_to_ip() {
 
 validate_network_config() {
   : "${CODEX_VM_CIDR:?set CODEX_VM_CIDR in .env}"
+  : "${CODEX_VM_HOST_IP:?set CODEX_VM_HOST_IP in .env}"
   : "${CODEX_VM_GATEWAY:?set CODEX_VM_GATEWAY in .env}"
   : "${CODEX_VM_DNS:?set CODEX_VM_DNS in .env}"
   : "${CODEX_VM_IP_START:?set CODEX_VM_IP_START in .env}"
   : "${CODEX_VM_IP_END:?set CODEX_VM_IP_END in .env}"
 
+  valid_ipv4 "$CODEX_VM_HOST_IP" || die "invalid CODEX_VM_HOST_IP"
   valid_ipv4 "$CODEX_VM_GATEWAY" || die "invalid CODEX_VM_GATEWAY"
   valid_ipv4 "$CODEX_VM_DNS" || die "invalid CODEX_VM_DNS"
   valid_ipv4 "$CODEX_VM_IP_START" || die "invalid CODEX_VM_IP_START"
   valid_ipv4 "$CODEX_VM_IP_END" || die "invalid CODEX_VM_IP_END"
 
-  python3 - "$CODEX_VM_CIDR" "$CODEX_VM_GATEWAY" "$CODEX_VM_DNS" \
+  python3 - "$CODEX_VM_CIDR" "$CODEX_VM_HOST_IP" "$CODEX_VM_GATEWAY" "$CODEX_VM_DNS" \
     "$CODEX_VM_IP_START" "$CODEX_VM_IP_END" <<'PY'
 import ipaddress
 import sys
@@ -93,16 +103,72 @@ import sys
 network = ipaddress.ip_network(sys.argv[1], strict=True)
 addresses = [ipaddress.ip_address(value) for value in sys.argv[2:]]
 if network.version != 4 or any(address not in network for address in addresses):
-    raise SystemExit("gateway, DNS and IP pool must be inside CODEX_VM_CIDR")
+    raise SystemExit("host shim, gateway, DNS and IP pool must be inside CODEX_VM_CIDR")
 if addresses[-2] > addresses[-1]:
     raise SystemExit("CODEX_VM_IP_START must not be after CODEX_VM_IP_END")
+if addresses[0] in (network.network_address, network.broadcast_address):
+    raise SystemExit("CODEX_VM_HOST_IP is not a usable host address")
 if addresses[-2] in (network.network_address, network.broadcast_address):
     raise SystemExit("CODEX_VM_IP_START is not a usable host address")
 if addresses[-1] in (network.network_address, network.broadcast_address):
     raise SystemExit("CODEX_VM_IP_END is not a usable host address")
 if addresses[-2] <= addresses[0] <= addresses[-1]:
+    raise SystemExit("CODEX_VM_HOST_IP must be outside the worker IP pool")
+if addresses[-2] <= addresses[1] <= addresses[-1]:
     raise SystemExit("CODEX_VM_GATEWAY must be outside the worker IP pool")
+if addresses[0] == addresses[1]:
+    raise SystemExit("CODEX_VM_HOST_IP must differ from CODEX_VM_GATEWAY")
 PY
+}
+
+worker_route_cidrs() {
+  python3 - "$CODEX_VM_IP_START" "$CODEX_VM_IP_END" <<'PY'
+import ipaddress
+import sys
+
+start, end = map(ipaddress.ip_address, sys.argv[1:])
+for network in ipaddress.summarize_address_range(start, end):
+    print(network)
+PY
+}
+
+validate_storage_config() {
+  local storage_dir probe next mount_info mount_options
+  : "${CODEX_VM_STORAGE_SOURCE:?set CODEX_VM_STORAGE_SOURCE in .env}"
+  [[ "$CODEX_VM_STORAGE_SOURCE" == /* ]] || die "CODEX_VM_STORAGE_SOURCE must be an absolute path"
+  [[ "$CODEX_VM_STORAGE_SOURCE" == *.img ]] || die "CODEX_VM_STORAGE_SOURCE must end in .img"
+  [[ "$CODEX_VM_STORAGE_SIZE" =~ ^[1-9][0-9]*GiB$ ]] || die "invalid CODEX_VM_STORAGE_SIZE"
+
+  CODEX_VM_STORAGE_SOURCE=$(readlink -m -- "$CODEX_VM_STORAGE_SOURCE")
+  [[ "${CODEX_VM_STORAGE_SOURCE##*/}" == "$CODEX_VM_STORAGE_POOL.img" ]] \
+    || die "CODEX_VM_STORAGE_SOURCE must end with $CODEX_VM_STORAGE_POOL.img"
+  storage_dir=${CODEX_VM_STORAGE_SOURCE%/*}
+  probe=$storage_dir
+  while [[ ! -e "$probe" ]]; do
+    next=${probe%/*}
+    [[ "$next" != "$probe" ]] || die "cannot resolve storage mount for $CODEX_VM_STORAGE_SOURCE"
+    probe=$next
+  done
+
+  mount_info=$(findmnt -n -o TARGET,FSTYPE,OPTIONS -T "$probe") \
+    || die "cannot find storage mount for $CODEX_VM_STORAGE_SOURCE"
+  read -r STORAGE_MOUNT STORAGE_FSTYPE mount_options <<<"$mount_info"
+  [[ "$STORAGE_MOUNT" != / ]] || die "CODEX_VM_STORAGE_SOURCE must be on a non-root filesystem"
+  [[ "$STORAGE_FSTYPE" == ext4 || "$STORAGE_FSTYPE" == xfs ]] \
+    || die "storage mount must use ext4 or xfs, not $STORAGE_FSTYPE"
+  [[ ",$mount_options," == *,rw,* ]] || die "storage mount is read-only: $STORAGE_MOUNT"
+  [[ ! -e "$CODEX_VM_STORAGE_SOURCE" || ( -f "$CODEX_VM_STORAGE_SOURCE" && ! -L "$CODEX_VM_STORAGE_SOURCE" ) ]] \
+    || die "storage source must be a regular, non-symlink file"
+
+  STORAGE_SIZE_BYTES=$(numfmt --from=iec-i "${CODEX_VM_STORAGE_SIZE%B}")
+}
+
+require_storage_capacity() {
+  local available minimum=$((STORAGE_SIZE_BYTES + 10 * 1024 * 1024 * 1024))
+  available=$(df -B1 --output=avail "$STORAGE_MOUNT" | tail -n 1 | tr -d '[:space:]')
+  [[ "$available" =~ ^[0-9]+$ ]] || die "cannot determine free space on $STORAGE_MOUNT"
+  (( available >= minimum )) \
+    || die "$STORAGE_MOUNT needs at least $CODEX_VM_STORAGE_SIZE plus 10 GiB free"
 }
 
 require_host() {
@@ -110,6 +176,9 @@ require_host() {
   need jq
   need python3
   need flock
+  need findmnt
+  need numfmt
+  need truncate
   valid_user "$CODEX_VM_GUEST_USER" || die "invalid CODEX_VM_GUEST_USER"
 }
 
@@ -158,19 +227,175 @@ wait_for_exec() {
   die "Incus agent did not become ready for $name"
 }
 
+wait_for_cloud_init() {
+  local name=$1 output rc deadline=$((SECONDS + 600))
+  info "waiting for cloud-init in $name (up to 10 minutes)"
+
+  while (( SECONDS < deadline )); do
+    output=""
+    if output=$(timeout 15 incus exec "$name" --force-noninteractive --disable-stdin -- \
+      cloud-init status --long 2>&1); then
+      rc=0
+    else
+      rc=$?
+    fi
+
+    if grep -q '^status: done$' <<<"$output"; then
+      printf '%s\n' "$output"
+      return
+    fi
+    if grep -qE '^status: (error|disabled)$' <<<"$output"; then
+      printf '%s\n' "$output" >&2
+      die "cloud-init failed in $name"
+    fi
+    if (( rc == 124 )); then
+      warn "cloud-init status probe timed out for $name; retrying"
+    fi
+    sleep 2
+  done
+  die "cloud-init did not finish in $name"
+}
+
 wait_for_guest() {
   local name=$1
   wait_for_exec "$name"
-  timeout 600 incus exec "$name" -- cloud-init status --wait
+  wait_for_cloud_init "$name"
   incus exec "$name" -- systemctl is-active --quiet ssh
   incus exec "$name" -- systemctl is-active --quiet docker
   incus exec "$name" -- su -l "$CODEX_VM_GUEST_USER" -c \
     'command -v node && command -v codex && command -v t3 && command -v gh && docker info >/dev/null'
 }
 
-cmd_doctor() {
-  local failed=0 storage_info used total percent need_numfmt
+storage_pool_instances() {
+  incus list --format=json | jq -r --arg pool "$CODEX_VM_STORAGE_POOL" '
+    .[] | select(.expanded_devices.root.pool == $pool) | .name'
+}
+
+storage_pool_images() {
+  incus query "/1.0/storage-pools/$CODEX_VM_STORAGE_POOL" | jq -r '
+    .used_by[]
+    | select(startswith("/1.0/images/"))
+    | split("/")[-1]'
+}
+
+incus_storage_source() {
+  printf '/var/lib/incus/disks/%s.img\n' "$CODEX_VM_STORAGE_POOL"
+}
+
+storage_bind_active() {
+  local physical_source bind_source bind_target
+  physical_source=$(findmnt -n -o SOURCE -T "$STORAGE_MOUNT") || return 1
+  read -r bind_target bind_source < <(findmnt -n -o TARGET,SOURCE -M /var/lib/incus/disks) \
+    || return 1
+  [[ "$bind_target" == /var/lib/incus/disks \
+    && "${bind_source%%\[*}" == "${physical_source%%\[*}" ]]
+}
+
+ensure_profile_root() {
+  incus profile show "$CODEX_VM_PROFILE" >/dev/null \
+    || incus profile create "$CODEX_VM_PROFILE"
+  if ! incus profile device get "$CODEX_VM_PROFILE" root pool >/dev/null 2>&1; then
+    incus profile device add "$CODEX_VM_PROFILE" root disk \
+      path=/ pool="$CODEX_VM_STORAGE_POOL" size="$CODEX_VM_DISK_SIZE"
+  fi
+}
+
+create_storage_pool() {
+  local expected_source
+  expected_source=$(incus_storage_source)
+  storage_bind_active \
+    || die "/var/lib/incus/disks is not bound to ${CODEX_VM_STORAGE_SOURCE%/*}; rerun the Ansible host playbook"
+  [[ ! -e "$CODEX_VM_STORAGE_SOURCE" ]] \
+    || die "refusing to overwrite existing storage source: $CODEX_VM_STORAGE_SOURCE"
+  [[ ! -e "$expected_source" ]] \
+    || die "refusing to overwrite existing Incus source: $expected_source"
+  incus storage create "$CODEX_VM_STORAGE_POOL" lvm size="$CODEX_VM_STORAGE_SIZE"
+}
+
+cmd_storage_migrate() {
+  local force=${1:-} current_source current_size answer instance image
+  local -a images=()
+  [[ -z "$force" || "$force" == --force ]] \
+    || die "usage: codex-vm storage-migrate [--force]"
   require_host
+  validate_storage_config
+  lock
+
+  if ! incus storage show "$CODEX_VM_STORAGE_POOL" >/dev/null 2>&1; then
+    require_storage_capacity
+    storage_bind_active \
+      || die "storage bind mount is not active; rerun the Ansible host playbook"
+    info "creating missing pool $CODEX_VM_STORAGE_POOL at $CODEX_VM_STORAGE_SOURCE"
+    create_storage_pool \
+      || die "pool creation failed; fix the error and rerun storage-migrate"
+    ensure_profile_root
+    info "storage pool is ready; rebuild the golden image with: ./codex-vm image-build"
+    return
+  fi
+
+  current_source=$(incus storage get "$CODEX_VM_STORAGE_POOL" source)
+  current_size=$(incus storage get "$CODEX_VM_STORAGE_POOL" size)
+  if [[ "$current_source" == "$(incus_storage_source)" \
+    && "$current_size" == "$CODEX_VM_STORAGE_SIZE" ]] \
+    && storage_bind_active && [[ -f "$CODEX_VM_STORAGE_SOURCE" ]]; then
+    ensure_profile_root
+    info "storage pool already uses $CODEX_VM_STORAGE_SOURCE"
+    return
+  fi
+
+  instance=$(storage_pool_instances | head -n 1)
+  [[ -z "$instance" ]] \
+    || die "instance $instance still uses $CODEX_VM_STORAGE_POOL; migration requires an empty pool"
+  require_storage_capacity
+  [[ ! -e "$CODEX_VM_STORAGE_SOURCE" ]] \
+    || die "target storage source already exists: $CODEX_VM_STORAGE_SOURCE"
+
+  printf 'Migrate %s from:\n  %s (%s)\nto:\n  %s (%s)\n\n' \
+    "$CODEX_VM_STORAGE_POOL" "$current_source" "$current_size" \
+    "$CODEX_VM_STORAGE_SOURCE" "$CODEX_VM_STORAGE_SIZE"
+  warn "all images in the old pool will be deleted and must be rebuilt"
+  if [[ "$force" != --force ]]; then
+    printf 'Continue? [y/N] '
+    read -r answer
+    [[ "$answer" == y || "$answer" == Y ]] || { info "cancelled"; return; }
+  fi
+
+  mapfile -t images < <(storage_pool_images)
+  for image in "${images[@]}"; do
+    info "deleting rebuildable image $image"
+    incus image delete "$image"
+  done
+
+  incus profile device remove "$CODEX_VM_PROFILE" root
+  if ! incus storage delete "$CODEX_VM_STORAGE_POOL"; then
+    ensure_profile_root
+    die "old pool could not be deleted; its profile root device was restored"
+  fi
+
+  if ! storage_bind_active; then
+    install_ssh_config || warn "old pool removed, but local SSH aliases could not be refreshed"
+    info "old root-backed pool removed"
+    info "rerun the Ansible host playbook to mount $STORAGE_MOUNT and create the new pool"
+    return
+  fi
+
+  info "creating $CODEX_VM_STORAGE_POOL on $STORAGE_MOUNT"
+  if ! create_storage_pool; then
+    warn "the old pool is gone and the profile has no root disk"
+    die "pool creation failed; fix the error and rerun storage-migrate"
+  fi
+  ensure_profile_root
+  install_ssh_config || warn "storage migrated, but local SSH aliases could not be refreshed"
+  info "storage migration is complete"
+  info "rebuild the golden image with: ./codex-vm image-build"
+}
+
+cmd_doctor() {
+  local failed=0 storage_info storage_config used total percent need_numfmt address route
+  local backing_used backing_total backing_percent
+  require_host
+  validate_network_config
+  validate_storage_config
 
   [[ "$(uname -s)" == Linux ]] || { warn "this command must run on the Ubuntu host"; failed=1; }
   [[ -c /dev/kvm ]] || { warn "/dev/kvm is unavailable"; failed=1; }
@@ -180,9 +405,35 @@ cmd_doctor() {
   [[ -z "${CODEX_VM_PARENT_NIC:-}" || ! -e "/sys/class/net/$CODEX_VM_PARENT_NIC/wireless" ]] || {
     warn "macvlan requires a wired interface"; failed=1;
   }
+  [[ -e "/sys/class/net/$CODEX_VM_HOST_INTERFACE" ]] || {
+    warn "$CODEX_VM_HOST_INTERFACE is missing; rerun the Ansible host playbook"; failed=1;
+  }
+  ip -4 address show dev "$CODEX_VM_HOST_INTERFACE" 2>/dev/null \
+    | grep -Fq "inet $CODEX_VM_HOST_IP/32" || {
+      warn "$CODEX_VM_HOST_INTERFACE does not have $CODEX_VM_HOST_IP/32"; failed=1;
+    }
+  for address in "$CODEX_VM_IP_START" "$CODEX_VM_IP_END"; do
+    route=$(ip route get "$address" 2>/dev/null || true)
+    [[ "$route" == *" dev $CODEX_VM_HOST_INTERFACE "* && "$route" == *" src $CODEX_VM_HOST_IP "* ]] || {
+      warn "route to $address does not use $CODEX_VM_HOST_INTERFACE from $CODEX_VM_HOST_IP"; failed=1;
+    }
+  done
 
   incus info >/dev/null 2>&1 || { warn "Incus daemon is unavailable"; failed=1; }
-  incus storage show "$CODEX_VM_STORAGE_POOL" >/dev/null 2>&1 || { warn "storage pool is missing"; failed=1; }
+  if storage_config=$(incus storage show "$CODEX_VM_STORAGE_POOL" 2>/dev/null); then
+    [[ "$(awk -F': ' '/^driver:/ {print $2; exit}' <<<"$storage_config")" == lvm ]] \
+      || { warn "storage pool is not LVM"; failed=1; }
+    [[ "$(incus storage get "$CODEX_VM_STORAGE_POOL" source)" == "$(incus_storage_source)" ]] \
+      || { warn "storage pool has an unexpected Incus source; run: ./codex-vm storage-migrate"; failed=1; }
+    [[ "$(incus storage get "$CODEX_VM_STORAGE_POOL" size)" == "$CODEX_VM_STORAGE_SIZE" ]] \
+      || { warn "storage pool size does not match $CODEX_VM_STORAGE_SIZE"; failed=1; }
+  else
+    warn "storage pool is missing"; failed=1
+  fi
+  [[ -f "$CODEX_VM_STORAGE_SOURCE" ]] \
+    || { warn "storage source is missing: $CODEX_VM_STORAGE_SOURCE"; failed=1; }
+  storage_bind_active \
+    || { warn "/var/lib/incus/disks is not bound to ${CODEX_VM_STORAGE_SOURCE%/*}"; failed=1; }
   incus profile show "$CODEX_VM_PROFILE" >/dev/null 2>&1 || { warn "worker profile is missing"; failed=1; }
   incus image info "$CODEX_VM_IMAGE" >/dev/null 2>&1 || { warn "golden image is missing; run: codex-vm image-build"; failed=1; }
 
@@ -191,13 +442,19 @@ cmd_doctor() {
     used=$(awk -F': ' '/space used:/ {print $2; exit}' <<< "$storage_info")
     total=$(awk -F': ' '/total space:/ {print $2; exit}' <<< "$storage_info")
     if [[ -n "$used" && -n "$total" ]] && need_numfmt=$(command -v numfmt); then
-      used=$($need_numfmt --from=iec "$used")
-      total=$($need_numfmt --from=iec "$total")
+      used=$($need_numfmt --from=iec-i "${used%B}")
+      total=$($need_numfmt --from=iec-i "${total%B}")
       (( total > 0 )) && percent=$(( used * 100 / total )) || percent=0
       (( percent < 80 )) || warn "worker pool is ${percent}% full"
     fi
   fi
-  df -h /var/lib/incus 2>/dev/null || true
+  backing_used=$(df -B1 --output=used "$STORAGE_MOUNT" | tail -n 1 | tr -d '[:space:]')
+  backing_total=$(df -B1 --output=size "$STORAGE_MOUNT" | tail -n 1 | tr -d '[:space:]')
+  if [[ "$backing_used" =~ ^[0-9]+$ && "$backing_total" =~ ^[0-9]+$ ]] && (( backing_total > 0 )); then
+    backing_percent=$((backing_used * 100 / backing_total))
+    (( backing_percent < 80 )) || warn "$STORAGE_MOUNT is ${backing_percent}% full"
+  fi
+  df -h / "$STORAGE_MOUNT" 2>/dev/null || true
   (( failed == 0 )) || return 1
   info "host is ready"
 }
@@ -214,7 +471,7 @@ cmd_image_build() {
   incus init images:ubuntu/24.04/cloud "$builder" --vm --profile "$CODEX_VM_PROFILE"
   incus start "$builder"
   wait_for_exec "$builder"
-  timeout 600 incus exec "$builder" -- cloud-init status --wait
+  wait_for_cloud_init "$builder"
 
   info "installing guest tools"
   incus exec "$builder" -- env GUEST_USER="$CODEX_VM_GUEST_USER" bash -se <<'PROVISION'
@@ -287,8 +544,7 @@ cmd_create() {
   valid_name "$name" || die "name must match ^[a-z][a-z0-9-]{0,62}$ and not end in '-'"
   require_host
   validate_network_config
-  : "${CODEX_VM_SSH_PUBLIC_KEY:?set CODEX_VM_SSH_PUBLIC_KEY in .env}"
-  [[ -r "$CODEX_VM_SSH_PUBLIC_KEY" ]] || die "cannot read SSH public key: $CODEX_VM_SSH_PUBLIC_KEY"
+  [[ -r "$CODEX_VM_SSH_PUBLIC_KEY" ]] || die "cannot read SSH public key: $CODEX_VM_SSH_PUBLIC_KEY; create it with: ssh-keygen -t ed25519 -f ~/.ssh/codex_workers -C codex-workers"
   read -r key_type key_data _ <"$CODEX_VM_SSH_PUBLIC_KEY"
   [[ "$key_type" =~ ^ssh-(ed25519|rsa)$ && "$key_data" =~ ^[A-Za-z0-9+/=]+$ ]] || die "unsupported SSH public key"
   key="$key_type $key_data"
@@ -370,19 +626,37 @@ EOF
   wait_for_guest "$name"
   ROLLBACK_VM=""
 
+  if ! install_ssh_config; then
+    warn "VM is ready, but the local SSH alias could not be installed"
+  fi
+
   cat <<EOF
 
 VM is ready.
+
+From this host:
+  ssh $name
+
+Incus console fallback:
+  ./codex-vm ssh $name
+
+From another trusted LAN computer:
+  Securely copy the shared private key to ~/.ssh/codex_workers, then run:
+  chmod 600 ~/.ssh/codex_workers
+  ssh -i ~/.ssh/codex_workers $CODEX_VM_GUEST_USER@$ip
+
+To use the same alias on that LAN computer, add this to ~/.ssh/config:
 
 Host $name
     HostName $ip
     User $CODEX_VM_GUEST_USER
     IdentityFile $CODEX_VM_SSH_IDENTITY
 
-First login:
-  ssh $name
+After connecting:
   codex login --device-auth
   gh auth login
+
+Never expose or commit the shared private key.
 EOF
 }
 
@@ -446,14 +720,54 @@ cmd_destroy() {
     [[ "$answer" == y || "$answer" == Y ]] || { info "cancelled"; return; }
   fi
   incus delete "$name" --force
+  install_ssh_config || warn "VM was destroyed, but the local SSH aliases could not be refreshed"
+}
+
+render_ssh_config() {
+  incus list --format=json | jq -r --arg user "$CODEX_VM_GUEST_USER" --arg identity "$CODEX_VM_SSH_IDENTITY" '
+    sort_by(.name)[]
+    | select(.config["user.codex-vm.managed"] == "true")
+    | .config["user.codex-vm.ipv4"] as $ip
+    | "Host \(.name)\n    HostName \($ip)\n    User \($user)\n    IdentityFile \($identity)\n"'
+}
+
+install_ssh_config() {
+  local ssh_dir="$HOME/.ssh" include_dir="$HOME/.ssh/config.d"
+  local managed_config="$HOME/.ssh/config.d/codex-vm" main_config="$HOME/.ssh/config"
+  local include_line='Include ~/.ssh/config.d/codex-vm' managed_temp main_temp
+
+  [[ ! -e "$main_config" || -f "$main_config" ]] || die "$main_config is not a regular file"
+  install -d -m 0700 "$ssh_dir" "$include_dir"
+
+  managed_temp=$(mktemp "$include_dir/.codex-vm.XXXXXX")
+  if ! render_ssh_config >"$managed_temp"; then
+    rm -f -- "$managed_temp"
+    return 1
+  fi
+  chmod 0600 "$managed_temp"
+  mv -f -- "$managed_temp" "$managed_config"
+
+  if [[ ! -f "$main_config" ]] || ! grep -Fqx "$include_line" "$main_config"; then
+    main_temp=$(mktemp "$ssh_dir/.config.XXXXXX")
+    {
+      printf '%s\n\n' "$include_line"
+      [[ ! -f "$main_config" ]] || cat "$main_config"
+    } >"$main_temp"
+    chmod 0600 "$main_temp"
+    mv -f -- "$main_temp" "$main_config"
+  else
+    chmod 0600 "$main_config"
+  fi
+  info "installed SSH aliases in $managed_config"
 }
 
 cmd_ssh_config() {
   require_host
-  incus list --format=json | jq -r --arg user "$CODEX_VM_GUEST_USER" --arg identity "$CODEX_VM_SSH_IDENTITY" '
-    sort_by(.name)[]
-    | select(.config["user.codex-vm.managed"] == "true")
-    | "Host \(.name)\n    HostName \(.config[\"user.codex-vm.ipv4\"])\n    User \($user)\n    IdentityFile \($identity)\n"'
+  case "${1:-}" in
+    "") render_ssh_config ;;
+    install) install_ssh_config ;;
+    *) die "usage: codex-vm ssh-config [install]" ;;
+  esac
 }
 
 usage() {
@@ -462,6 +776,7 @@ Usage: codex-vm <command> [arguments]
 
 Commands:
   doctor
+  storage-migrate [--force]
   image-build
   create <name>
   list
@@ -471,7 +786,7 @@ Commands:
   start <name>
   stop <name>
   destroy <name> [--force]
-  ssh-config
+  ssh-config [install]
 EOF
 }
 
@@ -479,6 +794,7 @@ main() {
   load_config
   case "${1:-}" in
     doctor) shift; cmd_doctor "$@" ;;
+    storage-migrate) shift; cmd_storage_migrate "$@" ;;
     image-build) shift; cmd_image_build "$@" ;;
     create) shift; cmd_create "$@" ;;
     list) shift; cmd_list "$@" ;;

@@ -42,7 +42,13 @@ machine identity. The guest account is always `vmuser`.
 
 Copy `.env.example` to `.env`, set the `CODEX_VM_*` values, and reserve the
 configured IP range outside the router's DHCP range. `CODEX_VM_PARENT_NIC` must
-be a wired interface.
+be the wired LAN interface from `ip -br link`. Reserve `CODEX_VM_HOST_IP`
+immediately outside the worker range as well; the host uses this address for a
+persistent macvlan shim that can reach the VMs. `CODEX_VM_STORAGE_SOURCE` must
+point to an `.img` file on a persistent, non-root ext4 or xfs mount.
+Incus only supports managed LVM loop files below `/var/lib/incus/disks`, so the
+host playbook bind-mounts the configured file's directory there; the bytes still
+reside on the selected SSD.
 
 Install the one bootstrap dependency, then provision the host locally:
 
@@ -53,10 +59,23 @@ set -a; source .env; set +a
 ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/host.yml
 ```
 
+If `codex-workers` already exists at another location and contains no instances,
+migrate it to the configured storage source. This intentionally removes cached
+and golden images, then asks you to rebuild them:
+
+```bash
+./codex-vm storage-migrate
+set -a; source .env; set +a
+ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/host.yml
+./codex-vm image-build
+./codex-vm doctor
+```
+
 Log out and back in once if Ansible added you to `incus-admin`. Build the golden
 image and create workers:
 
 ```bash
+test -f ~/.ssh/codex_workers.pub || ssh-keygen -t ed25519 -f ~/.ssh/codex_workers -C codex-workers
 ./codex-vm image-build
 ./codex-vm create codex-01
 ./codex-vm create codex-02
@@ -64,8 +83,32 @@ image and create workers:
 ./codex-vm ssh-config
 ```
 
-Paste the generated SSH entries into T3 Desktop's SSH config. On each VM, log
-in independently:
+`create` installs local aliases in `~/.ssh/config.d/codex-vm`, so the Incus host
+can connect directly with `ssh codex-01`. For VMs that existed before this was
+configured, rerun the host playbook and reconcile the aliases:
+
+```bash
+set -a; source .env; set +a
+ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/host.yml
+./codex-vm ssh-config install
+ssh codex-01
+```
+
+For another trusted computer on the LAN, securely transfer the shared private
+key to `~/.ssh/codex_workers` on that computer and protect it:
+
+```bash
+chmod 600 ~/.ssh/codex_workers
+ssh -i ~/.ssh/codex_workers vmuser@192.168.1.201
+```
+
+Paste the output of `./codex-vm ssh-config` into that computer's SSH config to
+use aliases such as `ssh codex-01`. The private key must match
+`CODEX_VM_SSH_PUBLIC_KEY`; never expose or commit it. All trusted LAN computers
+share this credential, so rotate it everywhere if any one computer is
+compromised.
+
+On each VM, log in independently:
 
 ```bash
 codex login --device-auth
@@ -76,6 +119,7 @@ Useful lifecycle commands:
 
 ```bash
 ./codex-vm doctor
+./codex-vm storage-migrate
 ./codex-vm status codex-01
 ./codex-vm ssh codex-01
 ./codex-vm stop codex-01
@@ -83,9 +127,15 @@ Useful lifecycle commands:
 ./codex-vm destroy codex-01
 ```
 
-The 20 GiB guest disks and the 80 GiB host pool are thin-provisioned: physical
-NVMe usage grows as blocks are written. Deleting a VM returns its blocks to the
-pool, although the sparse loop file itself normally does not shrink.
+The 20 GiB guest disks and the 60 GiB host pool are thin-provisioned: physical
+SSD usage grows as blocks are written. Deleting a VM returns its blocks to the
+pool, although the sparse loop file itself normally does not shrink. The current
+pool lives at `/media/storage/incus/codex-workers.img` on the internal 2 TB SSD.
+
+The same configuration can use a USB SSD only when it is formatted as ext4 or
+xfs and mounted persistently by UUID before Incus starts. Do not use the current
+HFS+ USB disk for VM storage; it must be backed up and reformatted first, and
+disconnecting it while a VM is active can corrupt the VM.
 
 ## Mount Drives
 

@@ -6,11 +6,21 @@
   gather_facts: true
 
   vars:
-    codex_vm_admin_user: "{{ lookup('env', 'CODEX_VM_ADMIN_USER') | default(lookup('env', 'USER'), true) }}"
+    codex_vm_admin_user: "{{ lookup('env', 'USER') }}"
     codex_vm_parent_nic: "{{ lookup('env', 'CODEX_VM_PARENT_NIC') }}"
+    codex_vm_cidr: "{{ lookup('env', 'CODEX_VM_CIDR') }}"
+    codex_vm_host_ip: "{{ lookup('env', 'CODEX_VM_HOST_IP') }}"
+    codex_vm_gateway: "{{ lookup('env', 'CODEX_VM_GATEWAY') }}"
+    codex_vm_dns: "{{ lookup('env', 'CODEX_VM_DNS') }}"
+    codex_vm_ip_start: "{{ lookup('env', 'CODEX_VM_IP_START') }}"
+    codex_vm_ip_end: "{{ lookup('env', 'CODEX_VM_IP_END') }}"
+    codex_vm_host_interface: codex-vm-host
     codex_vm_storage_pool: codex-workers
     codex_vm_profile: codex-worker
-    codex_vm_storage_size: "{{ lookup('env', 'CODEX_VM_STORAGE_SIZE') | default('80GiB', true) }}"
+    codex_vm_storage_source: "{{ lookup('env', 'CODEX_VM_STORAGE_SOURCE') }}"
+    codex_vm_storage_directory: "{{ lookup('env', 'CODEX_VM_STORAGE_SOURCE') | dirname }}"
+    codex_vm_incus_storage_source: "/var/lib/incus/disks/{{ codex_vm_storage_pool }}.img"
+    codex_vm_storage_size: "{{ lookup('env', 'CODEX_VM_STORAGE_SIZE') | default('60GiB', true) }}"
     codex_vm_disk_size: "{{ lookup('env', 'CODEX_VM_DISK_SIZE') | default('20GiB', true) }}"
     codex_vm_memory: "{{ lookup('env', 'CODEX_VM_MEMORY') | default('2GiB', true) }}"
     codex_vm_cpus: "{{ lookup('env', 'CODEX_VM_CPUS') | default('2', true) }}"
@@ -23,14 +33,109 @@
           - ansible_distribution == 'Ubuntu'
           - ansible_distribution_version is version('24.04', '>=')
           - ansible_architecture == 'x86_64'
-          - codex_vm_admin_user | length > 0
           - codex_vm_parent_nic | length > 0
+          - codex_vm_cidr | length > 0
+          - codex_vm_host_ip | length > 0
+          - codex_vm_gateway | length > 0
+          - codex_vm_dns | length > 0
+          - codex_vm_ip_start | length > 0
+          - codex_vm_ip_end | length > 0
+          - codex_vm_storage_source is match('^/.*\\.img$')
           - codex_vm_storage_size is match('^[1-9][0-9]*GiB$')
           - codex_vm_disk_size is match('^[1-9][0-9]*GiB$')
           - codex_vm_memory is match('^[1-9][0-9]*GiB$')
           - codex_vm_cpus is match('^[1-9][0-9]*$')
           - (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first | int) >= codex_vm_minimum_free_bytes
         fail_msg: Ubuntu 24.04 x86_64 and valid CODEX_VM_* variables are required
+
+    - name: Find existing ancestor of storage directory
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            from pathlib import Path
+            import sys
+
+            path = Path(sys.argv[1])
+            while not path.exists() and path != path.parent:
+                path = path.parent
+            print(path)
+          - "{{ codex_vm_storage_directory }}"
+      register: codex_vm_storage_ancestor
+      changed_when: false
+      check_mode: false
+
+    - name: Read backing filesystem for worker storage
+      ansible.builtin.command:
+        argv:
+          - findmnt
+          - --json
+          - --target
+          - "{{ codex_vm_storage_ancestor.stdout }}"
+      register: codex_vm_storage_mount
+      changed_when: false
+      check_mode: false
+
+    - name: Verify worker storage is on a suitable non-root filesystem
+      ansible.builtin.assert:
+        that:
+          - (codex_vm_storage_mount.stdout | from_json).filesystems[0].target != '/'
+          - (codex_vm_storage_mount.stdout | from_json).filesystems[0].fstype in ['ext4', 'xfs']
+          - "'rw' in (codex_vm_storage_mount.stdout | from_json).filesystems[0].options.split(',')"
+        fail_msg: CODEX_VM_STORAGE_SOURCE must be on a writable, non-root ext4 or xfs filesystem
+
+    - name: Read free space on worker storage filesystem
+      ansible.builtin.command:
+        argv:
+          - df
+          - --output=avail
+          - --block-size=1
+          - "{{ codex_vm_storage_ancestor.stdout }}"
+      register: codex_vm_storage_free
+      changed_when: false
+      check_mode: false
+
+    - name: Verify worker storage has capacity and safety margin
+      ansible.builtin.assert:
+        that:
+          - >-
+            codex_vm_storage_free.stdout_lines[-1] | trim | int >=
+            ((codex_vm_storage_size | regex_replace('GiB$', '') | int + 10) * 1073741824)
+        fail_msg: Worker storage needs the configured pool size plus at least 10 GiB free
+
+    - name: Validate VM network addresses and calculate host routes
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import ipaddress
+            import sys
+
+            network = ipaddress.ip_network(sys.argv[1], strict=True)
+            host, gateway, dns, start, end = map(ipaddress.ip_address, sys.argv[2:])
+            addresses = (host, gateway, dns, start, end)
+            if network.version != 4 or any(address not in network for address in addresses):
+                raise SystemExit("all VM addresses must be inside the IPv4 CIDR")
+            if start > end:
+                raise SystemExit("worker IP start must not be after worker IP end")
+            if any(address in (network.network_address, network.broadcast_address) for address in (host, start, end)):
+                raise SystemExit("host shim and worker endpoints must be usable addresses")
+            if start <= host <= end or start <= gateway <= end:
+                raise SystemExit("host shim and gateway must be outside the worker pool")
+            if host == gateway:
+                raise SystemExit("host shim must differ from the gateway")
+            print("\n".join(map(str, ipaddress.summarize_address_range(start, end))))
+          - "{{ codex_vm_cidr }}"
+          - "{{ codex_vm_host_ip }}"
+          - "{{ codex_vm_gateway }}"
+          - "{{ codex_vm_dns }}"
+          - "{{ codex_vm_ip_start }}"
+          - "{{ codex_vm_ip_end }}"
+      register: codex_vm_host_routes
+      changed_when: false
+      check_mode: false
 
     - name: Check KVM device
       ansible.builtin.stat:
@@ -60,7 +165,9 @@
           - codex_vm_nic.stat.exists
           - not codex_vm_wifi.stat.exists
           - codex_vm_admin_user in ansible_facts.getent_passwd
-        fail_msg: /dev/kvm, an existing wired NIC, and an existing admin account are required
+        fail_msg: >-
+          /dev/kvm, an existing wired NIC, and an existing admin account are required.
+          CODEX_VM_PARENT_NIC={{ codex_vm_parent_nic }}; available interfaces={{ ansible_interfaces | sort | join(', ') }}.
 
   tasks:
     - name: Install Incus host dependencies
@@ -73,6 +180,7 @@
           - iputils-arping
           - jq
           - lvm2
+          - network-manager
           - python3
           - qemu-system
           - ripgrep
@@ -81,11 +189,147 @@
         update_cache: true
         cache_valid_time: 3600
 
+    - name: Install persistent host macvlan connection
+      ansible.builtin.copy:
+        dest: "/etc/NetworkManager/system-connections/{{ codex_vm_host_interface }}.nmconnection"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          [connection]
+          id={{ codex_vm_host_interface }}
+          uuid=ba6b8cdc-9a8d-4b7c-ac05-f4f60770061c
+          type=macvlan
+          interface-name={{ codex_vm_host_interface }}
+          autoconnect=true
+
+          [macvlan]
+          mode=2
+          parent={{ codex_vm_parent_nic }}
+
+          [ipv4]
+          address1={{ codex_vm_host_ip }}/32
+          method=manual
+          never-default=true
+          {% for route in codex_vm_host_routes.stdout_lines %}
+          route{{ loop.index }}={{ route }}
+          {% endfor %}
+
+          [ipv6]
+          addr-gen-mode=default
+          method=disabled
+
+          [proxy]
+      register: codex_vm_host_connection
+
+    - name: Reload NetworkManager connections
+      ansible.builtin.command: nmcli connection reload
+      when: codex_vm_host_connection.changed
+      changed_when: true
+
+    - name: Read host macvlan connection state
+      ansible.builtin.command: "nmcli --get-values GENERAL.STATE device show {{ codex_vm_host_interface }}"
+      register: codex_vm_host_connection_state
+      failed_when: false
+      changed_when: false
+
+    - name: Activate host macvlan connection
+      ansible.builtin.command: "nmcli connection up {{ codex_vm_host_interface }}"
+      when: >-
+        codex_vm_host_connection.changed or
+        codex_vm_host_connection_state.rc != 0 or
+        not codex_vm_host_connection_state.stdout.startswith('100')
+      changed_when: true
+
     - name: Start Incus
       ansible.builtin.systemd_service:
         name: incus
         enabled: true
         state: started
+
+    - name: Read existing storage pools before mounting SSD storage
+      ansible.builtin.command: incus storage list --format=json
+      register: codex_vm_storage_list
+      changed_when: false
+
+    - name: Check whether Incus disks directory is a mount point
+      ansible.builtin.command: mountpoint --quiet /var/lib/incus/disks
+      register: codex_vm_disks_mount
+      failed_when: false
+      changed_when: false
+
+    - name: Refuse to hide an active root-backed pool
+      ansible.builtin.assert:
+        that:
+          - >-
+            codex_vm_storage_pool not in
+            (codex_vm_storage_list.stdout | from_json | map(attribute='name') | list)
+            or codex_vm_disks_mount.rc == 0
+        fail_msg: >-
+          The existing worker pool is still root-backed. With no instances in it,
+          run ./codex-vm storage-migrate before rerunning this playbook.
+
+    - name: Create worker storage directory
+      ansible.builtin.file:
+        path: "{{ codex_vm_storage_directory }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Persist worker storage bind mount
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^\S+\s+/var/lib/incus/disks\s+'
+        line: "{{ codex_vm_storage_directory }} /var/lib/incus/disks none bind 0 0"
+        state: present
+
+    - name: Activate worker storage bind mount
+      ansible.builtin.command:
+        argv:
+          - mount
+          - --bind
+          - "{{ codex_vm_storage_directory }}"
+          - /var/lib/incus/disks
+      when: codex_vm_disks_mount.rc != 0
+      changed_when: true
+
+    - name: Read active worker storage bind source
+      ansible.builtin.command: findmnt --noheadings --output SOURCE --mountpoint /var/lib/incus/disks
+      register: codex_vm_active_storage_source
+      changed_when: false
+
+    - name: Verify Incus disks directory is backed by the configured filesystem
+      ansible.builtin.assert:
+        that:
+          - >-
+            codex_vm_active_storage_source.stdout.split('[')[0] ==
+            (codex_vm_storage_mount.stdout | from_json).filesystems[0].source.split('[')[0]
+        fail_msg: /var/lib/incus/disks is not backed by CODEX_VM_STORAGE_SOURCE's filesystem
+
+    - name: Create Incus systemd override directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/incus.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Require the worker storage mount before starting Incus
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/incus.service.d/storage-mount.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          RequiresMountsFor=/var/lib/incus/disks
+      register: codex_vm_incus_mount_dependency
+
+    - name: Reload systemd after adding Incus mount dependency
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: codex_vm_incus_mount_dependency.changed
 
     - name: Allow the administrator to manage Incus
       ansible.builtin.user:
@@ -94,24 +338,7 @@
         append: true
       register: codex_vm_admin_group
 
-    - name: Read existing storage pools
-      ansible.builtin.command: incus storage list --format=json
-      register: codex_vm_storage_list
-      changed_when: false
-
-    - name: Initialize Incus with a loop-backed LVM pool
-      ansible.builtin.command:
-        argv:
-          - incus
-          - admin
-          - init
-          - --auto
-          - --storage-backend=lvm
-          - "--storage-pool={{ codex_vm_storage_pool }}"
-          - "--storage-create-loop={{ codex_vm_storage_size | regex_replace('GiB$', '') }}"
-      when: codex_vm_storage_list.stdout | from_json | length == 0
-
-    - name: Create the worker pool on an already initialized host
+    - name: Create the worker storage pool
       ansible.builtin.command:
         argv:
           - incus
@@ -120,19 +347,39 @@
           - "{{ codex_vm_storage_pool }}"
           - lvm
           - "size={{ codex_vm_storage_size }}"
-      when:
-        - codex_vm_storage_list.stdout | from_json | length > 0
-        - codex_vm_storage_pool not in (codex_vm_storage_list.stdout | from_json | map(attribute='name') | list)
+      when: codex_vm_storage_pool not in (codex_vm_storage_list.stdout | from_json | map(attribute='name') | list)
 
     - name: Read worker storage pool
-      ansible.builtin.command: "incus storage show {{ codex_vm_storage_pool }}"
+      ansible.builtin.command:
+        argv:
+          - incus
+          - storage
+          - show
+          - "{{ codex_vm_storage_pool }}"
       register: codex_vm_storage
       changed_when: false
 
-    - name: Verify the LVM storage driver
+    - name: Verify worker storage configuration
       ansible.builtin.assert:
-        that: (codex_vm_storage.stdout | from_yaml).driver == 'lvm'
-        fail_msg: "Storage pool {{ codex_vm_storage_pool }} exists but is not LVM"
+        that:
+          - (codex_vm_storage.stdout | from_yaml).driver == 'lvm'
+          - (codex_vm_storage.stdout | from_yaml).config.source == codex_vm_incus_storage_source
+          - (codex_vm_storage.stdout | from_yaml).config.size == codex_vm_storage_size
+        fail_msg: >-
+          Storage pool {{ codex_vm_storage_pool }} does not match CODEX_VM_STORAGE_SOURCE/CODEX_VM_STORAGE_SIZE.
+          With no instances in the pool, run ./codex-vm storage-migrate.
+
+    - name: Read physical worker storage file
+      ansible.builtin.stat:
+        path: "{{ codex_vm_storage_source }}"
+      register: codex_vm_storage_file
+
+    - name: Verify physical worker storage file
+      ansible.builtin.assert:
+        that:
+          - codex_vm_storage_file.stat.exists
+          - codex_vm_storage_file.stat.isreg
+        fail_msg: "Expected worker storage file is missing: {{ codex_vm_storage_source }}"
 
     - name: Read worker profile
       ansible.builtin.command: "incus profile show {{ codex_vm_profile }}"
