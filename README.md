@@ -34,6 +34,59 @@ Start by installing packages from `preflight.sh`
 
 To enable SSH access use `ssh.sh` it installs OpenSSH Uncomplicated Firewall (UFW) Keychain. Set up SSH server as a daemon, opens 22 port in UFW and applying SSH configuration from `assets/ssh_config`. Also it adds SSH agent autostart to `~/.zshrc`.
 
+## Codex worker VMs
+
+The worker setup uses Incus virtual machines so that every Codex/T3 identity,
+workspace, Git checkout, Docker daemon, and session has its own filesystem and
+machine identity. The guest account is always `vmuser`.
+
+Copy `.env.example` to `.env`, set the `CODEX_VM_*` values, and reserve the
+configured IP range outside the router's DHCP range. `CODEX_VM_PARENT_NIC` must
+be a wired interface.
+
+Install the one bootstrap dependency, then provision the host locally:
+
+```bash
+sudo apt update
+sudo apt install -y ansible-core
+set -a; source .env; set +a
+ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/host.yml
+```
+
+Log out and back in once if Ansible added you to `incus-admin`. Build the golden
+image and create workers:
+
+```bash
+./codex-vm image-build
+./codex-vm create codex-01
+./codex-vm create codex-02
+./codex-vm list
+./codex-vm ssh-config
+```
+
+Paste the generated SSH entries into T3 Desktop's SSH config. On each VM, log
+in independently:
+
+```bash
+codex login --device-auth
+gh auth login
+```
+
+Useful lifecycle commands:
+
+```bash
+./codex-vm doctor
+./codex-vm status codex-01
+./codex-vm ssh codex-01
+./codex-vm stop codex-01
+./codex-vm start codex-01
+./codex-vm destroy codex-01
+```
+
+The 20 GiB guest disks and the 80 GiB host pool are thin-provisioned: physical
+NVMe usage grows as blocks are written. Deleting a VM returns its blocks to the
+pool, although the sparse loop file itself normally does not shrink.
+
 ## Mount Drives
 
 Make sure you have exFAT support installed:

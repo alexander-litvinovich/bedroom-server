@@ -1,0 +1,497 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+TEMP_DIR=""
+ROLLBACK_VM=""
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+info() { printf '==> %s\n' "$*"; }
+
+cleanup() {
+  local rc=$?
+  if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
+    rm -rf -- "$TEMP_DIR"
+  fi
+  if (( rc != 0 )) && [[ -n "$ROLLBACK_VM" ]]; then
+    warn "removing incomplete VM $ROLLBACK_VM"
+    incus delete "$ROLLBACK_VM" --force >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+load_config() {
+  if [[ -f "$SCRIPT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/.env"
+    set +a
+  fi
+
+  CODEX_VM_GUEST_USER="${CODEX_VM_GUEST_USER:-vmuser}"
+  CODEX_VM_STORAGE_POOL="${CODEX_VM_STORAGE_POOL:-codex-workers}"
+  CODEX_VM_PROFILE="${CODEX_VM_PROFILE:-codex-worker}"
+  CODEX_VM_IMAGE="${CODEX_VM_IMAGE:-codex-worker}"
+  CODEX_VM_SSH_IDENTITY="${CODEX_VM_SSH_IDENTITY:-~/.ssh/codex_workers}"
+}
+
+need() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
+
+valid_name() {
+  [[ "$1" =~ ^[a-z][a-z0-9-]{0,62}$ && "$1" != *- ]]
+}
+
+valid_user() {
+  [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
+}
+
+valid_ipv4() {
+  local ip=$1 part
+  local -a parts
+  local IFS=.
+  read -r -a parts <<< "$ip"
+  [[ ${#parts[@]} -eq 4 ]] || return 1
+  for part in "${parts[@]}"; do
+    [[ "$part" =~ ^(0|[1-9][0-9]{0,2})$ ]] || return 1
+    (( 10#$part <= 255 )) || return 1
+  done
+}
+
+ip_to_int() {
+  local a b c d
+  IFS=. read -r a b c d <<< "$1"
+  printf '%u\n' "$(( (10#$a << 24) + (10#$b << 16) + (10#$c << 8) + 10#$d ))"
+}
+
+int_to_ip() {
+  local value=$1
+  printf '%d.%d.%d.%d\n' \
+    "$(( (value >> 24) & 255 ))" \
+    "$(( (value >> 16) & 255 ))" \
+    "$(( (value >> 8) & 255 ))" \
+    "$(( value & 255 ))"
+}
+
+validate_network_config() {
+  : "${CODEX_VM_CIDR:?set CODEX_VM_CIDR in .env}"
+  : "${CODEX_VM_GATEWAY:?set CODEX_VM_GATEWAY in .env}"
+  : "${CODEX_VM_DNS:?set CODEX_VM_DNS in .env}"
+  : "${CODEX_VM_IP_START:?set CODEX_VM_IP_START in .env}"
+  : "${CODEX_VM_IP_END:?set CODEX_VM_IP_END in .env}"
+
+  valid_ipv4 "$CODEX_VM_GATEWAY" || die "invalid CODEX_VM_GATEWAY"
+  valid_ipv4 "$CODEX_VM_DNS" || die "invalid CODEX_VM_DNS"
+  valid_ipv4 "$CODEX_VM_IP_START" || die "invalid CODEX_VM_IP_START"
+  valid_ipv4 "$CODEX_VM_IP_END" || die "invalid CODEX_VM_IP_END"
+
+  python3 - "$CODEX_VM_CIDR" "$CODEX_VM_GATEWAY" "$CODEX_VM_DNS" \
+    "$CODEX_VM_IP_START" "$CODEX_VM_IP_END" <<'PY'
+import ipaddress
+import sys
+
+network = ipaddress.ip_network(sys.argv[1], strict=True)
+addresses = [ipaddress.ip_address(value) for value in sys.argv[2:]]
+if network.version != 4 or any(address not in network for address in addresses):
+    raise SystemExit("gateway, DNS and IP pool must be inside CODEX_VM_CIDR")
+if addresses[-2] > addresses[-1]:
+    raise SystemExit("CODEX_VM_IP_START must not be after CODEX_VM_IP_END")
+if addresses[-2] in (network.network_address, network.broadcast_address):
+    raise SystemExit("CODEX_VM_IP_START is not a usable host address")
+if addresses[-1] in (network.network_address, network.broadcast_address):
+    raise SystemExit("CODEX_VM_IP_END is not a usable host address")
+if addresses[-2] <= addresses[0] <= addresses[-1]:
+    raise SystemExit("CODEX_VM_GATEWAY must be outside the worker IP pool")
+PY
+}
+
+require_host() {
+  need incus
+  need jq
+  need python3
+  need flock
+  valid_user "$CODEX_VM_GUEST_USER" || die "invalid CODEX_VM_GUEST_USER"
+}
+
+lock() {
+  local lock_dir="${XDG_RUNTIME_DIR:-/tmp}"
+  # ponytail: one administrator-wide lock is enough until concurrent creators are needed.
+  exec 9>"$lock_dir/codex-vm.lock"
+  flock -n 9 || die "another codex-vm operation is running"
+}
+
+instance_exists() { incus info "$1" >/dev/null 2>&1; }
+
+managed_instance() {
+  instance_exists "$1" && [[ "$(incus config get "$1" user.codex-vm.managed 2>/dev/null)" == true ]]
+}
+
+require_managed() {
+  valid_name "$1" || die "invalid VM name: $1"
+  managed_instance "$1" || die "managed VM not found: $1"
+}
+
+allocate_ip() {
+  local start end candidate ip used
+  start=$(ip_to_int "$CODEX_VM_IP_START")
+  end=$(ip_to_int "$CODEX_VM_IP_END")
+  used=$(incus list --format=json | jq -r '.[] | select(.config["user.codex-vm.managed"] == "true") | .config["user.codex-vm.ipv4"] // empty')
+
+  for ((candidate=start; candidate<=end; candidate++)); do
+    ip=$(int_to_ip "$candidate")
+    if ! grep -Fqx "$ip" <<< "$used"; then
+      printf '%s\n' "$ip"
+      return
+    fi
+  done
+  die "no free addresses in the configured pool"
+}
+
+wait_for_exec() {
+  local name=$1 attempt
+  for ((attempt=1; attempt<=180; attempt++)); do
+    if incus exec "$name" -- true >/dev/null 2>&1; then
+      return
+    fi
+    sleep 2
+  done
+  die "Incus agent did not become ready for $name"
+}
+
+wait_for_guest() {
+  local name=$1
+  wait_for_exec "$name"
+  timeout 600 incus exec "$name" -- cloud-init status --wait
+  incus exec "$name" -- systemctl is-active --quiet ssh
+  incus exec "$name" -- systemctl is-active --quiet docker
+  incus exec "$name" -- su -l "$CODEX_VM_GUEST_USER" -c \
+    'command -v node && command -v codex && command -v t3 && command -v gh && docker info >/dev/null'
+}
+
+cmd_doctor() {
+  local failed=0 storage_info used total percent need_numfmt
+  require_host
+
+  [[ "$(uname -s)" == Linux ]] || { warn "this command must run on the Ubuntu host"; failed=1; }
+  [[ -c /dev/kvm ]] || { warn "/dev/kvm is unavailable"; failed=1; }
+  [[ -n "${CODEX_VM_PARENT_NIC:-}" && -e "/sys/class/net/$CODEX_VM_PARENT_NIC" ]] || {
+    warn "CODEX_VM_PARENT_NIC does not exist"; failed=1;
+  }
+  [[ -z "${CODEX_VM_PARENT_NIC:-}" || ! -e "/sys/class/net/$CODEX_VM_PARENT_NIC/wireless" ]] || {
+    warn "macvlan requires a wired interface"; failed=1;
+  }
+
+  incus info >/dev/null 2>&1 || { warn "Incus daemon is unavailable"; failed=1; }
+  incus storage show "$CODEX_VM_STORAGE_POOL" >/dev/null 2>&1 || { warn "storage pool is missing"; failed=1; }
+  incus profile show "$CODEX_VM_PROFILE" >/dev/null 2>&1 || { warn "worker profile is missing"; failed=1; }
+  incus image info "$CODEX_VM_IMAGE" >/dev/null 2>&1 || { warn "golden image is missing; run: codex-vm image-build"; failed=1; }
+
+  if storage_info=$(incus storage info "$CODEX_VM_STORAGE_POOL" 2>/dev/null); then
+    printf '%s\n' "$storage_info"
+    used=$(awk -F': ' '/space used:/ {print $2; exit}' <<< "$storage_info")
+    total=$(awk -F': ' '/total space:/ {print $2; exit}' <<< "$storage_info")
+    if [[ -n "$used" && -n "$total" ]] && need_numfmt=$(command -v numfmt); then
+      used=$($need_numfmt --from=iec "$used")
+      total=$($need_numfmt --from=iec "$total")
+      (( total > 0 )) && percent=$(( used * 100 / total )) || percent=0
+      (( percent < 80 )) || warn "worker pool is ${percent}% full"
+    fi
+  fi
+  df -h /var/lib/incus 2>/dev/null || true
+  (( failed == 0 )) || return 1
+  info "host is ready"
+}
+
+cmd_image_build() {
+  local builder=codex-worker-build
+  require_host
+  lock
+  instance_exists "$builder" && die "temporary instance already exists: $builder"
+  incus profile show "$CODEX_VM_PROFILE" >/dev/null || die "run the Ansible host playbook first"
+
+  ROLLBACK_VM=$builder
+  info "creating Ubuntu 24.04 build VM"
+  incus init images:ubuntu/24.04/cloud "$builder" --vm --profile "$CODEX_VM_PROFILE"
+  incus start "$builder"
+  wait_for_exec "$builder"
+  timeout 600 incus exec "$builder" -- cloud-init status --wait
+
+  info "installing guest tools"
+  incus exec "$builder" -- env GUEST_USER="$CODEX_VM_GUEST_USER" bash -se <<'PROVISION'
+set -Eeuo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y ca-certificates curl git gnupg jq openssh-server ripgrep build-essential
+install -m 0755 -d /etc/apt/keyrings
+
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+  | gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
+printf 'deb [arch=%s signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main\n' \
+  "$(dpkg --print-architecture)" >/etc/apt/sources.list.d/nodesource.list
+
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+chmod a+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+printf 'deb [arch=%s signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\n' \
+  "$(dpkg --print-architecture)" >/etc/apt/sources.list.d/github-cli.list
+
+. /etc/os-release
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\n' \
+  "$(dpkg --print-architecture)" "${UBUNTU_CODENAME:-$VERSION_CODENAME}" \
+  >/etc/apt/sources.list.d/docker.list
+
+apt-get update
+apt-get install -y nodejs gh docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 24 || (major === 24 && minor < 10)) process.exit(1)'
+npm install --global --no-audit --no-fund @openai/codex@latest t3@latest
+
+id "$GUEST_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$GUEST_USER"
+usermod --append --groups sudo,docker "$GUEST_USER"
+printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$GUEST_USER" >"/etc/sudoers.d/90-$GUEST_USER"
+chmod 0440 "/etc/sudoers.d/90-$GUEST_USER"
+install -d -o "$GUEST_USER" -g "$GUEST_USER" /workspace
+install -d -m 0700 -o "$GUEST_USER" -g "$GUEST_USER" \
+  "/home/$GUEST_USER/.codex" "/home/$GUEST_USER/.t3" \
+  "/home/$GUEST_USER/.ssh" "/home/$GUEST_USER/.config/gh"
+if [[ "$GUEST_USER" != ubuntu ]] && id ubuntu >/dev/null 2>&1; then
+  userdel --remove ubuntu
+fi
+systemctl enable ssh docker containerd
+
+systemctl stop docker.service docker.socket containerd.service || true
+rm -rf /var/lib/docker/* /var/lib/containerd/*
+find "/home/$GUEST_USER/.codex" "/home/$GUEST_USER/.t3" "/home/$GUEST_USER/.config/gh" \
+  -mindepth 1 -delete
+find /home /root -path '*/.ssh/authorized_keys' -type f -delete
+rm -f /etc/ssh/ssh_host_*
+cloud-init clean --logs --machine-id --seed
+truncate -s 0 /etc/machine-id
+ln -sf /etc/machine-id /var/lib/dbus/machine-id
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+PROVISION
+
+  incus stop "$builder" --force
+  info "publishing $CODEX_VM_IMAGE"
+  incus publish "$builder" --alias "$CODEX_VM_IMAGE" --reuse
+  incus delete "$builder"
+  ROLLBACK_VM=""
+  info "golden image is ready: $CODEX_VM_IMAGE"
+}
+
+cmd_create() {
+  local name=${1:-} ip prefix key key_type key_data mac
+  valid_name "$name" || die "name must match ^[a-z][a-z0-9-]{0,62}$ and not end in '-'"
+  require_host
+  validate_network_config
+  : "${CODEX_VM_SSH_PUBLIC_KEY:?set CODEX_VM_SSH_PUBLIC_KEY in .env}"
+  [[ -r "$CODEX_VM_SSH_PUBLIC_KEY" ]] || die "cannot read SSH public key: $CODEX_VM_SSH_PUBLIC_KEY"
+  read -r key_type key_data _ <"$CODEX_VM_SSH_PUBLIC_KEY"
+  [[ "$key_type" =~ ^ssh-(ed25519|rsa)$ && "$key_data" =~ ^[A-Za-z0-9+/=]+$ ]] || die "unsupported SSH public key"
+  key="$key_type $key_data"
+  lock
+  instance_exists "$name" && die "instance already exists: $name"
+  incus image info "$CODEX_VM_IMAGE" >/dev/null || die "golden image is missing; run: codex-vm image-build"
+
+  ip=$(allocate_ip)
+  prefix=${CODEX_VM_CIDR#*/}
+  TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/codex-vm.XXXXXX")
+  ROLLBACK_VM=$name
+
+  info "creating $name at $ip"
+  incus init "$CODEX_VM_IMAGE" "$name" --vm --profile "$CODEX_VM_PROFILE"
+  incus config set "$name" user.codex-vm.managed=true user.codex-vm.ipv4="$ip"
+  mac=$(incus config get "$name" volatile.eth0.hwaddr)
+  [[ -n "$mac" ]] || die "Incus did not allocate a MAC address"
+
+  cat >"$TEMP_DIR/user-data.yml" <<EOF
+#cloud-config
+hostname: $name
+manage_etc_hosts: true
+ssh_pwauth: false
+disable_root: true
+ssh_deletekeys: true
+ssh_genkeytypes: [ed25519, rsa]
+users:
+  - name: $CODEX_VM_GUEST_USER
+    groups: [adm, sudo, docker]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - $key
+growpart:
+  mode: auto
+  devices: [/]
+resize_rootfs: true
+swap:
+  filename: /swapfile
+  size: 2147483648
+  maxsize: 2147483648
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-codex-vm.conf
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+      PubkeyAuthentication yes
+runcmd:
+  - [mkdir, -p, /workspace]
+  - [chown, '$CODEX_VM_GUEST_USER:$CODEX_VM_GUEST_USER', /workspace]
+  - [systemctl, restart, ssh]
+EOF
+
+  cat >"$TEMP_DIR/network-config.yml" <<EOF
+version: 2
+ethernets:
+  eth0:
+    match:
+      macaddress: "$mac"
+    set-name: eth0
+    dhcp4: false
+    dhcp6: false
+    accept-ra: false
+    addresses:
+      - $ip/$prefix
+    routes:
+      - to: default
+        via: $CODEX_VM_GATEWAY
+    nameservers:
+      addresses:
+        - $CODEX_VM_DNS
+EOF
+
+  incus config set "$name" cloud-init.user-data - <"$TEMP_DIR/user-data.yml"
+  incus config set "$name" cloud-init.network-config - <"$TEMP_DIR/network-config.yml"
+  incus start "$name"
+  wait_for_guest "$name"
+  ROLLBACK_VM=""
+
+  cat <<EOF
+
+VM is ready.
+
+Host $name
+    HostName $ip
+    User $CODEX_VM_GUEST_USER
+    IdentityFile $CODEX_VM_SSH_IDENTITY
+
+First login:
+  ssh $name
+  codex login --device-auth
+  gh auth login
+EOF
+}
+
+cmd_list() {
+  require_host
+  printf 'NAME\tSTATUS\tIP\n'
+  incus list --format=json | jq -r '
+    sort_by(.name)[]
+    | select(.config["user.codex-vm.managed"] == "true")
+    | [.name, .status, .config["user.codex-vm.ipv4"]]
+    | @tsv'
+}
+
+cmd_status() {
+  local name=${1:-}
+  require_host
+  require_managed "$name"
+  printf 'name: %s\nip: %s\n' "$name" "$(incus config get "$name" user.codex-vm.ipv4)"
+  incus info "$name"
+}
+
+cmd_ip() {
+  local name=${1:-}
+  require_host
+  require_managed "$name"
+  incus config get "$name" user.codex-vm.ipv4
+}
+
+cmd_ssh() {
+  local name=${1:-}
+  require_host
+  require_managed "$name"
+  incus exec "$name" -- su -l "$CODEX_VM_GUEST_USER"
+}
+
+cmd_start() {
+  local name=${1:-}
+  require_host
+  require_managed "$name"
+  lock
+  incus start "$name"
+  wait_for_guest "$name"
+}
+
+cmd_stop() {
+  local name=${1:-}
+  require_host
+  require_managed "$name"
+  lock
+  incus stop "$name"
+}
+
+cmd_destroy() {
+  local name=${1:-} force=${2:-}
+  require_host
+  require_managed "$name"
+  lock
+  if [[ "$force" != --force ]]; then
+    printf 'Destroy %s and all of its data? [y/N] ' "$name"
+    read -r answer
+    [[ "$answer" == y || "$answer" == Y ]] || { info "cancelled"; return; }
+  fi
+  incus delete "$name" --force
+}
+
+cmd_ssh_config() {
+  require_host
+  incus list --format=json | jq -r --arg user "$CODEX_VM_GUEST_USER" --arg identity "$CODEX_VM_SSH_IDENTITY" '
+    sort_by(.name)[]
+    | select(.config["user.codex-vm.managed"] == "true")
+    | "Host \(.name)\n    HostName \(.config[\"user.codex-vm.ipv4\"])\n    User \($user)\n    IdentityFile \($identity)\n"'
+}
+
+usage() {
+  cat <<'EOF'
+Usage: codex-vm <command> [arguments]
+
+Commands:
+  doctor
+  image-build
+  create <name>
+  list
+  status <name>
+  ip <name>
+  ssh <name>
+  start <name>
+  stop <name>
+  destroy <name> [--force]
+  ssh-config
+EOF
+}
+
+main() {
+  load_config
+  case "${1:-}" in
+    doctor) shift; cmd_doctor "$@" ;;
+    image-build) shift; cmd_image_build "$@" ;;
+    create) shift; cmd_create "$@" ;;
+    list) shift; cmd_list "$@" ;;
+    status) shift; cmd_status "$@" ;;
+    ip) shift; cmd_ip "$@" ;;
+    ssh) shift; cmd_ssh "$@" ;;
+    start) shift; cmd_start "$@" ;;
+    stop) shift; cmd_stop "$@" ;;
+    destroy) shift; cmd_destroy "$@" ;;
+    ssh-config) shift; cmd_ssh_config "$@" ;;
+    -h|--help|help|'') usage ;;
+    *) usage >&2; die "unknown command: $1" ;;
+  esac
+}
+
+[[ "${CODEX_VM_NO_MAIN:-}" == 1 ]] || main "$@"

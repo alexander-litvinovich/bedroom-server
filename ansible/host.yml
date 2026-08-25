@@ -1,0 +1,250 @@
+---
+- name: Prepare the Incus host for Codex worker VMs
+  hosts: all
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    codex_vm_admin_user: "{{ lookup('env', 'CODEX_VM_ADMIN_USER') | default(lookup('env', 'USER'), true) }}"
+    codex_vm_parent_nic: "{{ lookup('env', 'CODEX_VM_PARENT_NIC') }}"
+    codex_vm_storage_pool: codex-workers
+    codex_vm_profile: codex-worker
+    codex_vm_storage_size: "{{ lookup('env', 'CODEX_VM_STORAGE_SIZE') | default('80GiB', true) }}"
+    codex_vm_disk_size: "{{ lookup('env', 'CODEX_VM_DISK_SIZE') | default('20GiB', true) }}"
+    codex_vm_memory: "{{ lookup('env', 'CODEX_VM_MEMORY') | default('2GiB', true) }}"
+    codex_vm_cpus: "{{ lookup('env', 'CODEX_VM_CPUS') | default('2', true) }}"
+    codex_vm_minimum_free_bytes: 10737418240
+
+  pre_tasks:
+    - name: Validate host and configuration
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_distribution_version is version('24.04', '>=')
+          - ansible_architecture == 'x86_64'
+          - codex_vm_admin_user | length > 0
+          - codex_vm_parent_nic | length > 0
+          - codex_vm_storage_size is match('^[1-9][0-9]*GiB$')
+          - codex_vm_disk_size is match('^[1-9][0-9]*GiB$')
+          - codex_vm_memory is match('^[1-9][0-9]*GiB$')
+          - codex_vm_cpus is match('^[1-9][0-9]*$')
+          - (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first | int) >= codex_vm_minimum_free_bytes
+        fail_msg: Ubuntu 24.04 x86_64 and valid CODEX_VM_* variables are required
+
+    - name: Check KVM device
+      ansible.builtin.stat:
+        path: /dev/kvm
+      register: codex_vm_kvm
+
+    - name: Check parent network interface
+      ansible.builtin.stat:
+        path: "/sys/class/net/{{ codex_vm_parent_nic }}"
+      register: codex_vm_nic
+
+    - name: Check that parent interface is wired
+      ansible.builtin.stat:
+        path: "/sys/class/net/{{ codex_vm_parent_nic }}/wireless"
+      register: codex_vm_wifi
+
+    - name: Check administrator account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ codex_vm_admin_user }}"
+        fail_key: false
+
+    - name: Reject unsupported hardware or account configuration
+      ansible.builtin.assert:
+        that:
+          - codex_vm_kvm.stat.exists
+          - codex_vm_nic.stat.exists
+          - not codex_vm_wifi.stat.exists
+          - codex_vm_admin_user in ansible_facts.getent_passwd
+        fail_msg: /dev/kvm, an existing wired NIC, and an existing admin account are required
+
+  tasks:
+    - name: Install Incus host dependencies
+      ansible.builtin.apt:
+        name:
+          - cloud-image-utils
+          - curl
+          - incus
+          - iproute2
+          - iputils-arping
+          - jq
+          - lvm2
+          - python3
+          - qemu-system
+          - ripgrep
+          - thin-provisioning-tools
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Start Incus
+      ansible.builtin.systemd_service:
+        name: incus
+        enabled: true
+        state: started
+
+    - name: Allow the administrator to manage Incus
+      ansible.builtin.user:
+        name: "{{ codex_vm_admin_user }}"
+        groups: incus-admin
+        append: true
+      register: codex_vm_admin_group
+
+    - name: Read existing storage pools
+      ansible.builtin.command: incus storage list --format=json
+      register: codex_vm_storage_list
+      changed_when: false
+
+    - name: Initialize Incus with a loop-backed LVM pool
+      ansible.builtin.command:
+        argv:
+          - incus
+          - admin
+          - init
+          - --auto
+          - --storage-backend=lvm
+          - "--storage-pool={{ codex_vm_storage_pool }}"
+          - "--storage-create-loop={{ codex_vm_storage_size | regex_replace('GiB$', '') }}"
+      when: codex_vm_storage_list.stdout | from_json | length == 0
+
+    - name: Create the worker pool on an already initialized host
+      ansible.builtin.command:
+        argv:
+          - incus
+          - storage
+          - create
+          - "{{ codex_vm_storage_pool }}"
+          - lvm
+          - "size={{ codex_vm_storage_size }}"
+      when:
+        - codex_vm_storage_list.stdout | from_json | length > 0
+        - codex_vm_storage_pool not in (codex_vm_storage_list.stdout | from_json | map(attribute='name') | list)
+
+    - name: Read worker storage pool
+      ansible.builtin.command: "incus storage show {{ codex_vm_storage_pool }}"
+      register: codex_vm_storage
+      changed_when: false
+
+    - name: Verify the LVM storage driver
+      ansible.builtin.assert:
+        that: (codex_vm_storage.stdout | from_yaml).driver == 'lvm'
+        fail_msg: "Storage pool {{ codex_vm_storage_pool }} exists but is not LVM"
+
+    - name: Read worker profile
+      ansible.builtin.command: "incus profile show {{ codex_vm_profile }}"
+      register: codex_vm_profile_read
+      failed_when: false
+      changed_when: false
+
+    - name: Create worker profile
+      ansible.builtin.command: "incus profile create {{ codex_vm_profile }}"
+      when: codex_vm_profile_read.rc != 0
+
+    - name: Remember existing profile configuration
+      ansible.builtin.set_fact:
+        codex_vm_profile_data: "{{ (codex_vm_profile_read.stdout | from_yaml) if codex_vm_profile_read.rc == 0 else {'config': {}, 'devices': {}} }}"
+
+    - name: Set worker CPU limit
+      ansible.builtin.command: "incus profile set {{ codex_vm_profile }} limits.cpu={{ codex_vm_cpus }}"
+      when: codex_vm_profile_data.config['limits.cpu'] | default('') != codex_vm_cpus
+
+    - name: Set worker memory limit
+      ansible.builtin.command: "incus profile set {{ codex_vm_profile }} limits.memory={{ codex_vm_memory }}"
+      when: codex_vm_profile_data.config['limits.memory'] | default('') != codex_vm_memory
+
+    - name: Add worker root disk
+      ansible.builtin.command:
+        argv:
+          - incus
+          - profile
+          - device
+          - add
+          - "{{ codex_vm_profile }}"
+          - root
+          - disk
+          - path=/
+          - "pool={{ codex_vm_storage_pool }}"
+          - "size={{ codex_vm_disk_size }}"
+      when: codex_vm_profile_data.devices.root is not defined
+
+    - name: Reconcile worker root disk
+      ansible.builtin.command:
+        argv:
+          - incus
+          - profile
+          - device
+          - set
+          - "{{ codex_vm_profile }}"
+          - root
+          - "{{ item.key }}={{ item.value }}"
+      loop:
+        - { key: path, value: / }
+        - { key: pool, value: "{{ codex_vm_storage_pool }}" }
+        - { key: size, value: "{{ codex_vm_disk_size }}" }
+      when:
+        - codex_vm_profile_data.devices.root is defined
+        - codex_vm_profile_data.devices.root[item.key] | default('') != item.value
+
+    - name: Add worker macvlan NIC
+      ansible.builtin.command:
+        argv:
+          - incus
+          - profile
+          - device
+          - add
+          - "{{ codex_vm_profile }}"
+          - eth0
+          - nic
+          - nictype=macvlan
+          - "parent={{ codex_vm_parent_nic }}"
+      when: codex_vm_profile_data.devices.eth0 is not defined
+
+    - name: Reconcile worker macvlan NIC
+      ansible.builtin.command:
+        argv:
+          - incus
+          - profile
+          - device
+          - set
+          - "{{ codex_vm_profile }}"
+          - eth0
+          - "{{ item.key }}={{ item.value }}"
+      loop:
+        - { key: nictype, value: macvlan }
+        - { key: parent, value: "{{ codex_vm_parent_nic }}" }
+      when:
+        - codex_vm_profile_data.devices.eth0 is defined
+        - codex_vm_profile_data.devices.eth0[item.key] | default('') != item.value
+
+    - name: Enable periodic trim
+      ansible.builtin.systemd_service:
+        name: fstrim.timer
+        enabled: true
+        state: started
+
+    - name: Read final worker profile
+      ansible.builtin.command: "incus profile show {{ codex_vm_profile }}"
+      register: codex_vm_profile_final
+      changed_when: false
+
+    - name: Verify final worker profile
+      ansible.builtin.assert:
+        that:
+          - (codex_vm_profile_final.stdout | from_yaml).config['limits.cpu'] == codex_vm_cpus
+          - (codex_vm_profile_final.stdout | from_yaml).config['limits.memory'] == codex_vm_memory
+          - (codex_vm_profile_final.stdout | from_yaml).devices.root.type == 'disk'
+          - (codex_vm_profile_final.stdout | from_yaml).devices.root.path == '/'
+          - (codex_vm_profile_final.stdout | from_yaml).devices.root.pool == codex_vm_storage_pool
+          - (codex_vm_profile_final.stdout | from_yaml).devices.root.size == codex_vm_disk_size
+          - (codex_vm_profile_final.stdout | from_yaml).devices.eth0.type == 'nic'
+          - (codex_vm_profile_final.stdout | from_yaml).devices.eth0.nictype == 'macvlan'
+          - (codex_vm_profile_final.stdout | from_yaml).devices.eth0.parent == codex_vm_parent_nic
+
+    - name: Remind about refreshed group membership
+      ansible.builtin.debug:
+        msg: "Log out and back in before running codex-vm."
+      when: codex_vm_admin_group.changed
