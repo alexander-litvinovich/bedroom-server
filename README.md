@@ -37,6 +37,7 @@ sudo apt update
 sudo apt install -y ansible-core
 ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/packages.yml
 ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/ssh.yml
+XRDP_USER="$USER" ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/xrdp.yml
 ```
 
 `ansible/packages.yml` installs Git, GitHub CLI, Zsh, Midnight Commander,
@@ -44,6 +45,8 @@ Homebrew, and RTK.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.
+`ansible/xrdp.yml` installs and configures XRDP for the account named by
+`XRDP_USER`, including its firewall rule and headless display configuration.
 
 Run `preflight.sh` afterward for the software that has not yet been converted to
 Ansible.
