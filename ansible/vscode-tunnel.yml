@@ -1,0 +1,118 @@
+---
+- name: Configure a persistent Visual Studio Code tunnel
+  hosts: all
+  connection: local
+  become: true
+  gather_facts: true
+
+  vars:
+    vscode_tunnel_user: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
+    vscode_tunnel_binary: /usr/bin/code
+    vscode_tunnel_cli_data_dir: "/home/{{ vscode_tunnel_user }}/.vscode/cli"
+
+  pre_tasks:
+    - name: Validate the target host
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_architecture in ['x86_64', 'aarch64', 'armv7l']
+          - vscode_tunnel_user | length > 0
+          - vscode_tunnel_user != 'root'
+        fail_msg: Run this playbook on Ubuntu as a non-root user with become enabled
+
+    - name: Read the tunnel user account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ vscode_tunnel_user }}"
+
+    - name: Set tunnel user account details
+      ansible.builtin.set_fact:
+        vscode_tunnel_group: "{{ ansible_facts.getent_passwd[vscode_tunnel_user][2] }}"
+        vscode_tunnel_home: "{{ ansible_facts.getent_passwd[vscode_tunnel_user][4] }}"
+
+  tasks:
+    - name: Install prerequisites for the Visual Studio Code repository
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+        state: present
+        update_cache: true
+
+    - name: Install the Microsoft package signing key
+      ansible.builtin.get_url:
+        url: https://packages.microsoft.com/keys/microsoft.asc
+        dest: /usr/share/keyrings/microsoft.asc
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure the Visual Studio Code APT repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/vscode.sources
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          Types: deb
+          URIs: https://packages.microsoft.com/repos/code
+          Suites: stable
+          Components: main
+          Architectures: {{ {'x86_64': 'amd64', 'aarch64': 'arm64', 'armv7l': 'armhf'}[ansible_architecture] }}
+          Signed-By: /usr/share/keyrings/microsoft.asc
+
+    - name: Install Visual Studio Code from APT
+      ansible.builtin.apt:
+        name: code
+        state: present
+        update_cache: true
+
+    - name: Create the VS Code CLI data directory
+      ansible.builtin.file:
+        path: "{{ vscode_tunnel_cli_data_dir }}"
+        state: directory
+        owner: "{{ vscode_tunnel_user }}"
+        group: "{{ vscode_tunnel_group }}"
+        mode: '0700'
+
+    - name: Install the VS Code tunnel system service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/code-tunnel.service
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Visual Studio Code Tunnel
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=simple
+          User={{ vscode_tunnel_user }}
+          Group={{ vscode_tunnel_group }}
+          WorkingDirectory={{ vscode_tunnel_home }}
+          Environment=HOME={{ vscode_tunnel_home }}
+          Environment=VSCODE_CLI_DATA_DIR={{ vscode_tunnel_cli_data_dir }}
+          ExecStart={{ vscode_tunnel_binary }} --cli-data-dir {{ vscode_tunnel_cli_data_dir }} tunnel service internal-run
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+      register: vscode_tunnel_unit
+
+    - name: Reload systemd after updating the tunnel unit
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: vscode_tunnel_unit.changed
+
+    - name: Enable and start the VS Code tunnel
+      ansible.builtin.systemd_service:
+        name: code-tunnel.service
+        enabled: true
+        state: started
+
+# Authenticate the service account once before the first run:
+#   /usr/bin/code tunnel user login
+# Then run:
+#   ansible-playbook -K ansible/vscode-tunnel.yml

@@ -5,20 +5,105 @@
   become: true
   gather_facts: true
 
+  vars:
+    packages_admin_user: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
+    homebrew_prefix: /home/linuxbrew/.linuxbrew
+
   pre_tasks:
     - name: Validate the target host
       ansible.builtin.assert:
         that:
           - ansible_distribution == 'Ubuntu'
-        fail_msg: This playbook supports Ubuntu only
+          - ansible_architecture in ['x86_64', 'aarch64']
+          - packages_admin_user | length > 0
+          - packages_admin_user != 'root'
+        fail_msg: Run this playbook on supported Ubuntu hardware as a non-root user with become enabled
+
+    - name: Read the package administrator account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ packages_admin_user }}"
+
+    - name: Set package administrator account details
+      ansible.builtin.set_fact:
+        packages_admin_group: "{{ ansible_facts.getent_passwd[packages_admin_user][2] }}"
+        packages_admin_home: "{{ ansible_facts.getent_passwd[packages_admin_user][4] }}"
+        packages_admin_shell: "{{ ansible_facts.getent_passwd[packages_admin_user][5] }}"
 
   tasks:
     - name: Install command-line packages
       ansible.builtin.apt:
         name:
+          - build-essential
+          - curl
+          - file
           - gh
           - git
           - mc
+          - procps
           - zsh
         state: present
         update_cache: true
+
+    - name: Prepare the Homebrew installation directory
+      ansible.builtin.file:
+        path: /home/linuxbrew
+        state: directory
+        owner: "{{ packages_admin_user }}"
+        group: "{{ packages_admin_group }}"
+        mode: '0755'
+
+    - name: Install Homebrew
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | /bin/bash
+      args:
+        creates: "{{ homebrew_prefix }}/bin/brew"
+        executable: /bin/bash
+      become_user: "{{ packages_admin_user }}"
+      environment:
+        HOME: "{{ packages_admin_home }}"
+        NONINTERACTIVE: '1'
+        USER: "{{ packages_admin_user }}"
+
+    - name: Select the Homebrew shell configuration
+      ansible.builtin.set_fact:
+        homebrew_shell_rc: >-
+          {{ packages_admin_home }}/{{ '.zshrc' if packages_admin_shell is match('.*/zsh$') else '.bashrc' }}
+
+    - name: Add Homebrew to the shell environment
+      ansible.builtin.lineinfile:
+        path: "{{ homebrew_shell_rc }}"
+        line: 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
+        insertafter: EOF
+        create: true
+        owner: "{{ packages_admin_user }}"
+        group: "{{ packages_admin_group }}"
+        mode: '0644'
+
+    - name: Check whether RTK is installed
+      ansible.builtin.command:
+        argv:
+          - "{{ homebrew_prefix }}/bin/brew"
+          - list
+          - --formula
+          - rtk
+      register: homebrew_rtk
+      changed_when: false
+      failed_when: false
+      become_user: "{{ packages_admin_user }}"
+      environment:
+        HOME: "{{ packages_admin_home }}"
+        USER: "{{ packages_admin_user }}"
+
+    - name: Install RTK with Homebrew
+      ansible.builtin.command:
+        argv:
+          - "{{ homebrew_prefix }}/bin/brew"
+          - install
+          - rtk
+      when: homebrew_rtk.rc != 0
+      become_user: "{{ packages_admin_user }}"
+      environment:
+        HOME: "{{ packages_admin_home }}"
+        USER: "{{ packages_admin_user }}"

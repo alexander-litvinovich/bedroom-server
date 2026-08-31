@@ -39,13 +39,49 @@ ansible-playbook --connection=local --inventory localhost, --ask-become-pass ans
 ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/ssh.yml
 ```
 
-`ansible/packages.yml` installs Git, GitHub CLI, Zsh, and Midnight Commander.
+`ansible/packages.yml` installs Git, GitHub CLI, Zsh, Midnight Commander,
+Homebrew, and RTK.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.
 
 Run `preflight.sh` afterward for the software that has not yet been converted to
 Ansible.
+
+## VS Code Remote Tunnel
+
+The `ansible/vscode-tunnel.yml` playbook installs the Microsoft Visual Studio
+Code APT package, configures its APT repository, and creates a persistent
+`code-tunnel.service`. The service runs as the account that invokes Ansible and
+uses outbound connections only; no inbound firewall rule is required.
+
+Install it locally:
+
+```bash
+ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/vscode-tunnel.yml
+```
+
+Configure the tunnel once. Choose a unique name in place of `bedroom-server`,
+follow the device-login prompt using the GitHub or Microsoft account that will
+access the server, and wait until a `vscode.dev/tunnel/...` URL is displayed:
+
+```bash
+sudo systemctl stop code-tunnel
+code tunnel --name bedroom-server --accept-server-license-terms
+```
+
+Press `Ctrl-C` after the initial URL is displayed, then start and enable the
+persistent service:
+
+```bash
+sudo systemctl enable --now code-tunnel
+sudo systemctl status code-tunnel --no-pager
+code tunnel status
+```
+
+Open the displayed `vscode.dev` URL, or use **Remote Tunnels: Connect to
+Tunnel** in VS Code, and authenticate with the same account. To inspect service
+logs, run `sudo journalctl -u code-tunnel -f`.
 
 ## Codex worker VMs
 
