@@ -13,9 +13,6 @@ source "$(pwd)/utils/paths.sh"
 source "$UTILS_DIR/command.sh"
 source "$UTILS_DIR/print.sh"
 
-# Software distributed via APT and not yet managed by Ansible
-sudo apt-get install -y toilet boxes
-
 # Software w/ install bash scripts
 install "lazydocker" "curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash"
 install "ollama" "curl -fsSL https://ollama.com/install.sh | sh"

@@ -36,6 +36,7 @@ Install Ansible and run the general package and SSH playbooks locally:
 sudo apt update
 sudo apt install -y ansible-core
 ansible-playbook --ask-become-pass ansible/packages.yml
+ansible-playbook --ask-become-pass ansible/power-management.yml
 ansible-playbook --ask-become-pass ansible/ssh.yml
 ansible-playbook --ask-become-pass ansible/tailscale.yml
 ansible-playbook --ask-become-pass ansible/xrdp.yml
@@ -46,6 +47,8 @@ sudo passwd rdpuser
 
 `ansible/packages.yml` installs Git, GitHub CLI, Zsh, Midnight Commander,
 Homebrew, and RTK.
+`ansible/power-management.yml` prevents suspend and hibernation, makes the
+power button shut down the host, and masks sleep targets on headless hosts.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.

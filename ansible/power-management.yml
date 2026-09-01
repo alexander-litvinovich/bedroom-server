@@ -1,0 +1,66 @@
+---
+- name: Configure power management
+  hosts: localhost
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Validate the target host
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_service_mgr == 'systemd'
+        fail_msg: Run this playbook on Ubuntu with systemd and become enabled
+
+  tasks:
+    - name: Create systemd power configuration directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/systemd/sleep.conf.d
+        - /etc/systemd/logind.conf.d
+
+    - name: Install systemd power configuration
+      ansible.builtin.copy:
+        src: "../assets/{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - { src: power-management-sleep.conf, dest: /etc/systemd/sleep.conf.d/power-management.conf }
+        - { src: power-management-logind.conf, dest: /etc/systemd/logind.conf.d/power-management.conf }
+      notify:
+        - Reload systemd
+        - Restart logind
+
+    - name: Check for desktop session tools
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/bin/gnome-session
+        - /usr/bin/xset
+      register: power_management_desktop_tools
+
+    - name: Mask sleep targets on headless hosts
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        masked: true
+      loop:
+        - sleep.target
+        - suspend.target
+        - hibernate.target
+        - hybrid-sleep.target
+      when: power_management_desktop_tools.results | selectattr('stat.exists') | list | length == 0
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+    - name: Restart logind
+      ansible.builtin.systemd_service:
+        name: systemd-logind
+        state: restarted
