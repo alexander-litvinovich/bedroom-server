@@ -1,0 +1,112 @@
+---
+- name: Configure XRDP access
+  hosts: localhost
+  become: true
+  gather_facts: true
+
+  vars:
+    xrdp_user: rdpuser
+
+  pre_tasks:
+    - name: Validate the target host and XRDP account
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - xrdp_user | length > 0
+          - xrdp_user != 'root'
+        fail_msg: Set xrdp_user to a non-root account and run this playbook on Ubuntu
+
+  tasks:
+    - name: Install XRDP packages
+      ansible.builtin.apt:
+        name: [pulseaudio, samba, ufw, xrdp, xserver-xorg-video-dummy]
+        state: present
+        update_cache: true
+
+    - name: Create the XRDP account
+      ansible.builtin.user:
+        name: "{{ xrdp_user }}"
+        create_home: true
+        groups: adm,audio,cdrom,dip,lpadmin,netdev,plugdev,sambashare,sudo,video
+        append: true
+
+    - name: Read the XRDP account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ xrdp_user }}"
+
+    - name: Set XRDP account details
+      ansible.builtin.set_fact:
+        xrdp_group: "{{ ansible_facts.getent_passwd[xrdp_user][2] }}"
+        xrdp_home: "{{ ansible_facts.getent_passwd[xrdp_user][4] }}"
+
+    - name: Create XRDP configuration directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/X11/xorg.conf.d
+        - /etc/polkit-1/rules.d
+        - /etc/polkit-1/localauthority.conf.d
+        - /etc/polkit-1/localauthority/50-local.d
+
+    - name: Install XRDP configuration
+      ansible.builtin.copy:
+        src: "../assets/{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "{{ item.mode | default('0644') }}"
+      loop:
+        - { src: xrdp_02-allow-colord.conf, dest: /etc/polkit-1/localauthority.conf.d/02-allow-colord.conf }
+        - { src: xrdp_10-networkmanager.pkla, dest: /etc/polkit-1/localauthority/50-local.d/10-networkmanager.pkla }
+        - { src: xrdp_10-headless.conf, dest: /etc/X11/xorg.conf.d/10-headless.conf }
+        - { src: xrdp_49-nopasswd-localrdp.rules, dest: /etc/polkit-1/rules.d/49-nopasswd-localrdp.rules }
+        - { src: xrdp_xrdp-terminate-old-session.sh, dest: /usr/local/bin/xrdp-terminate-old-session.sh, mode: '0755' }
+      notify:
+        - Restart polkit
+        - Restart xrdp
+
+    - name: Install the XRDP session configuration
+      ansible.builtin.copy:
+        src: ../assets/xrdp_xsession
+        dest: "{{ xrdp_home }}/.xsession"
+        owner: "{{ xrdp_user }}"
+        group: "{{ xrdp_group }}"
+        mode: '0644'
+      notify: Restart xrdp
+
+    - name: Terminate old sessions during XRDP authentication
+      ansible.builtin.lineinfile:
+        path: /etc/pam.d/xrdp-sesman
+        line: auth optional pam_exec.so quiet /usr/local/bin/xrdp-terminate-old-session.sh
+        insertbefore: '^@include common-auth$'
+      notify: Restart xrdp
+
+    - name: Enable and start XRDP
+      ansible.builtin.systemd_service:
+        name: xrdp
+        enabled: true
+        state: started
+
+    - name: Read UFW status
+      ansible.builtin.command: ufw status
+      register: xrdp_ufw_status
+      changed_when: false
+      check_mode: false
+
+    - name: Allow XRDP through UFW
+      ansible.builtin.command: ufw allow 3389/tcp comment "Allow XRDP"
+      when: "'3389/tcp' not in xrdp_ufw_status.stdout"
+
+  handlers:
+    - name: Restart polkit
+      ansible.builtin.systemd_service:
+        name: polkit
+        state: restarted
+
+    - name: Restart xrdp
+      ansible.builtin.systemd_service:
+        name: xrdp
+        state: restarted

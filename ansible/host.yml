@@ -1,7 +1,6 @@
 ---
 - name: Prepare the Incus host for Codex worker VMs
-  hosts: all
-  connection: local
+  hosts: localhost
   become: true
   gather_facts: true
 
@@ -19,7 +18,6 @@
     codex_vm_profile: codex-worker
     codex_vm_storage_source: "{{ lookup('env', 'CODEX_VM_STORAGE_SOURCE') }}"
     codex_vm_storage_directory: "{{ lookup('env', 'CODEX_VM_STORAGE_SOURCE') | dirname }}"
-    codex_vm_incus_storage_source: "/var/lib/incus/disks/{{ codex_vm_storage_pool }}.img"
     codex_vm_storage_size: "{{ lookup('env', 'CODEX_VM_STORAGE_SIZE') | default('60GiB', true) }}"
     codex_vm_disk_size: "{{ lookup('env', 'CODEX_VM_DISK_SIZE') | default('20GiB', true) }}"
     codex_vm_memory: "{{ lookup('env', 'CODEX_VM_MEMORY') | default('2GiB', true) }}"
@@ -225,7 +223,6 @@
     - name: Reload NetworkManager connections
       ansible.builtin.command: nmcli connection reload
       when: codex_vm_host_connection.changed
-      changed_when: true
 
     - name: Read host macvlan connection state
       ansible.builtin.command: "nmcli --get-values GENERAL.STATE device show {{ codex_vm_host_interface }}"
@@ -239,7 +236,6 @@
         codex_vm_host_connection.changed or
         codex_vm_host_connection_state.rc != 0 or
         not codex_vm_host_connection_state.stdout.startswith('100')
-      changed_when: true
 
     - name: Start Incus
       ansible.builtin.systemd_service:
@@ -292,7 +288,6 @@
           - "{{ codex_vm_storage_directory }}"
           - /var/lib/incus/disks
       when: codex_vm_disks_mount.rc != 0
-      changed_when: true
 
     - name: Read active worker storage bind source
       ansible.builtin.command: findmnt --noheadings --output SOURCE --mountpoint /var/lib/incus/disks
@@ -324,19 +319,16 @@
         content: |
           [Unit]
           RequiresMountsFor=/var/lib/incus/disks
-      register: codex_vm_incus_mount_dependency
 
     - name: Reload systemd after adding Incus mount dependency
       ansible.builtin.systemd_service:
         daemon_reload: true
-      when: codex_vm_incus_mount_dependency.changed
 
     - name: Allow the administrator to manage Incus
       ansible.builtin.user:
         name: "{{ codex_vm_admin_user }}"
         groups: incus-admin
         append: true
-      register: codex_vm_admin_group
 
     - name: Create the worker storage pool
       ansible.builtin.command:
@@ -363,7 +355,7 @@
       ansible.builtin.assert:
         that:
           - (codex_vm_storage.stdout | from_yaml).driver == 'lvm'
-          - (codex_vm_storage.stdout | from_yaml).config.source == codex_vm_incus_storage_source
+          - (codex_vm_storage.stdout | from_yaml).config.source == '/var/lib/incus/disks/' ~ codex_vm_storage_pool ~ '.img'
           - (codex_vm_storage.stdout | from_yaml).config.size == codex_vm_storage_size
         fail_msg: >-
           Storage pool {{ codex_vm_storage_pool }} does not match CODEX_VM_STORAGE_SOURCE/CODEX_VM_STORAGE_SIZE.
@@ -491,7 +483,3 @@
           - (codex_vm_profile_final.stdout | from_yaml).devices.eth0.nictype == 'macvlan'
           - (codex_vm_profile_final.stdout | from_yaml).devices.eth0.parent == codex_vm_parent_nic
 
-    - name: Remind about refreshed group membership
-      ansible.builtin.debug:
-        msg: "Log out and back in before running codex-vm."
-      when: codex_vm_admin_group.changed

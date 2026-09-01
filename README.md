@@ -35,8 +35,10 @@ Install Ansible and run the general package and SSH playbooks locally:
 ```bash
 sudo apt update
 sudo apt install -y ansible-core
-ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/packages.yml
-ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/ssh.yml
+ansible-playbook --ask-become-pass ansible/packages.yml
+ansible-playbook --ask-become-pass ansible/ssh.yml
+ansible-playbook --ask-become-pass ansible/xrdp.yml
+sudo passwd rdpuser
 ```
 
 `ansible/packages.yml` installs Git, GitHub CLI, Zsh, Midnight Commander,
@@ -44,6 +46,8 @@ Homebrew, and RTK.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.
+`ansible/xrdp.yml` creates the `rdpuser` account and configures XRDP for it,
+including its firewall rule and headless display configuration.
 
 Run `preflight.sh` afterward for the software that has not yet been converted to
 Ansible.
@@ -58,7 +62,7 @@ uses outbound connections only; no inbound firewall rule is required.
 Install it locally:
 
 ```bash
-ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/vscode-tunnel.yml
+ansible-playbook --ask-become-pass ansible/vscode-tunnel.yml
 ```
 
 Configure the tunnel once. Choose a unique name in place of `bedroom-server`,
@@ -105,7 +109,7 @@ Install the one bootstrap dependency, then provision the host locally:
 sudo apt update
 sudo apt install -y ansible-core
 set -a; source .env; set +a
-ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/host.yml
+ansible-playbook --ask-become-pass ansible/host.yml
 ```
 
 If `codex-workers` already exists at another location and contains no instances,
@@ -115,7 +119,7 @@ and golden images, then asks you to rebuild them:
 ```bash
 ./codex-vm storage-migrate
 set -a; source .env; set +a
-ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/host.yml
+ansible-playbook --ask-become-pass ansible/host.yml
 ./codex-vm image-build
 ./codex-vm doctor
 ```
@@ -138,7 +142,7 @@ configured, rerun the host playbook and reconcile the aliases:
 
 ```bash
 set -a; source .env; set +a
-ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/host.yml
+ansible-playbook --ask-become-pass ansible/host.yml
 ./codex-vm ssh-config install
 ssh codex-01
 ```
@@ -230,7 +234,7 @@ sudo mount -a
 When cannot connect to RDP try to terminate user session
 
 ```bash
-loginctl terminate-user "$XRDP_USER"
+loginctl terminate-user rdpuser
 ```
 
 ## Web Services currently running in home network

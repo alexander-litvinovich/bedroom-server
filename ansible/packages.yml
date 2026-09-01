@@ -1,7 +1,6 @@
 ---
 - name: Install command-line tools
-  hosts: all
-  connection: local
+  hosts: localhost
   become: true
   gather_facts: true
 
@@ -66,14 +65,9 @@
         NONINTERACTIVE: '1'
         USER: "{{ packages_admin_user }}"
 
-    - name: Select the Homebrew shell configuration
-      ansible.builtin.set_fact:
-        homebrew_shell_rc: >-
-          {{ packages_admin_home }}/{{ '.zshrc' if packages_admin_shell is match('.*/zsh$') else '.bashrc' }}
-
     - name: Add Homebrew to the shell environment
       ansible.builtin.lineinfile:
-        path: "{{ homebrew_shell_rc }}"
+        path: "{{ packages_admin_home }}/{{ '.zshrc' if packages_admin_shell is match('.*/zsh$') else '.bashrc' }}"
         line: 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
         insertafter: EOF
         create: true
@@ -81,28 +75,13 @@
         group: "{{ packages_admin_group }}"
         mode: '0644'
 
-    - name: Check whether RTK is installed
-      ansible.builtin.command:
-        argv:
-          - "{{ homebrew_prefix }}/bin/brew"
-          - list
-          - --formula
-          - rtk
-      register: homebrew_rtk
-      changed_when: false
-      failed_when: false
-      become_user: "{{ packages_admin_user }}"
-      environment:
-        HOME: "{{ packages_admin_home }}"
-        USER: "{{ packages_admin_user }}"
-
     - name: Install RTK with Homebrew
       ansible.builtin.command:
         argv:
           - "{{ homebrew_prefix }}/bin/brew"
           - install
           - rtk
-      when: homebrew_rtk.rc != 0
+        creates: "{{ homebrew_prefix }}/bin/rtk"
       become_user: "{{ packages_admin_user }}"
       environment:
         HOME: "{{ packages_admin_home }}"
