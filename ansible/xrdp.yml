@@ -1,12 +1,11 @@
 ---
 - name: Configure XRDP access
-  hosts: all
-  connection: local
+  hosts: localhost
   become: true
   gather_facts: true
 
   vars:
-    xrdp_user: "{{ lookup('env', 'XRDP_USER') }}"
+    xrdp_user: rdpuser
 
   pre_tasks:
     - name: Validate the target host and XRDP account
@@ -15,7 +14,7 @@
           - ansible_distribution == 'Ubuntu'
           - xrdp_user | length > 0
           - xrdp_user != 'root'
-        fail_msg: Set XRDP_USER to a non-root account and run this playbook on Ubuntu
+        fail_msg: Set xrdp_user to a non-root account and run this playbook on Ubuntu
 
   tasks:
     - name: Install XRDP packages

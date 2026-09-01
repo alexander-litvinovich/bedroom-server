@@ -1,7 +1,6 @@
 ---
 - name: Configure SSH access
-  hosts: all
-  connection: local
+  hosts: localhost
   become: true
   gather_facts: true
 
