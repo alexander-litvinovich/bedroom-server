@@ -1,1 +1,0 @@
-auth optional pam_exec.so quiet /usr/local/bin/xrdp-terminate-old-session.sh

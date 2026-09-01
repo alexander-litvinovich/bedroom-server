@@ -1,13 +1,11 @@
 ---
 - name: Configure a persistent Visual Studio Code tunnel
-  hosts: all
-  connection: local
+  hosts: localhost
   become: true
   gather_facts: true
 
   vars:
     vscode_tunnel_user: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
-    vscode_tunnel_binary: /usr/bin/code
     vscode_tunnel_cli_data_dir: "/home/{{ vscode_tunnel_user }}/.vscode/cli"
 
   pre_tasks:
@@ -93,26 +91,16 @@
           WorkingDirectory={{ vscode_tunnel_home }}
           Environment=HOME={{ vscode_tunnel_home }}
           Environment=VSCODE_CLI_DATA_DIR={{ vscode_tunnel_cli_data_dir }}
-          ExecStart={{ vscode_tunnel_binary }} --cli-data-dir {{ vscode_tunnel_cli_data_dir }} tunnel service internal-run
+          ExecStart=/usr/bin/code --cli-data-dir {{ vscode_tunnel_cli_data_dir }} tunnel service internal-run
           Restart=always
           RestartSec=10
 
           [Install]
           WantedBy=multi-user.target
-      register: vscode_tunnel_unit
-
-    - name: Reload systemd after updating the tunnel unit
-      ansible.builtin.systemd_service:
-        daemon_reload: true
-      when: vscode_tunnel_unit.changed
-
     - name: Enable and start the VS Code tunnel
       ansible.builtin.systemd_service:
         name: code-tunnel.service
+        daemon_reload: true
         enabled: true
         state: started
 
-# Authenticate the service account once before the first run:
-#   /usr/bin/code tunnel user login
-# Then run:
-#   ansible-playbook -K ansible/vscode-tunnel.yml
