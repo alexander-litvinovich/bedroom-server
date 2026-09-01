@@ -17,6 +17,5 @@ source "$UTILS_DIR/print.sh"
 sudo apt-get install -y toilet boxes
 
 # Software w/ install bash scripts
-install "tailscale" "curl -fsSL https://tailscale.com/install.sh | sh"
 install "lazydocker" "curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash"
 install "ollama" "curl -fsSL https://ollama.com/install.sh | sh"

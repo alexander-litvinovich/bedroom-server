@@ -37,6 +37,7 @@ sudo apt update
 sudo apt install -y ansible-core
 ansible-playbook --ask-become-pass ansible/packages.yml
 ansible-playbook --ask-become-pass ansible/ssh.yml
+ansible-playbook --ask-become-pass ansible/tailscale.yml
 ansible-playbook --ask-become-pass ansible/xrdp.yml
 ansible-playbook --ask-become-pass ansible/docker.yml
 ansible-playbook --ask-become-pass ansible/ohmyzsh.yml
@@ -48,6 +49,9 @@ Homebrew, and RTK.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.
+`ansible/tailscale.yml` installs Tailscale from its official APT repository,
+starts `tailscaled`, and enables client automatic updates. Authenticate once with
+`sudo tailscale up`.
 `ansible/xrdp.yml` creates the `rdpuser` account and configures XRDP for it,
 including its firewall rule and headless display configuration.
 `ansible/docker.yml` installs Docker Engine from Docker's APT repository, enables
