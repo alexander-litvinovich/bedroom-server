@@ -23,15 +23,10 @@
         database: passwd
         key: "{{ docker_user }}"
 
-    - name: Set Docker user details
-      ansible.builtin.set_fact:
-        docker_group: "{{ ansible_facts.getent_passwd[docker_user][2] }}"
-        docker_home: "{{ ansible_facts.getent_passwd[docker_user][4] }}"
-
   tasks:
     - name: Install Docker repository prerequisites
       ansible.builtin.apt:
-        name: [ca-certificates, curl]
+        name: ca-certificates
         state: present
         update_cache: true
 
@@ -71,15 +66,6 @@
         name: "{{ docker_user }}"
         groups: docker
         append: true
-
-    - name: Fix Docker client directory ownership
-      ansible.builtin.file:
-        path: "{{ docker_home }}/.docker"
-        state: directory
-        owner: "{{ docker_user }}"
-        group: "{{ docker_group }}"
-        mode: '0770'
-        recurse: true
 
     - name: Enable and start Docker services
       ansible.builtin.systemd_service:

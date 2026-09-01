@@ -45,10 +45,10 @@ ansible-playbook --ask-become-pass ansible/ohmyzsh.yml
 sudo passwd rdpuser
 ```
 
-`ansible/packages.yml` installs Git, GitHub CLI, Zsh, Midnight Commander,
-Homebrew, and RTK.
-`ansible/power-management.yml` prevents suspend and hibernation, makes the
-power button shut down the host, and masks sleep targets on headless hosts.
+`ansible/packages.yml` installs Git, GitHub CLI, Midnight Commander, Homebrew,
+and RTK.
+`ansible/power-management.yml` prevents suspend and hibernation and makes the
+power button shut down the host.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.
