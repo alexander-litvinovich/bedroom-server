@@ -27,9 +27,9 @@
         ohmyzsh_home: "{{ ansible_facts.getent_passwd[ohmyzsh_user][4] }}"
 
   tasks:
-    - name: Install Oh My Zsh prerequisites
+    - name: Install Zsh and Git
       ansible.builtin.apt:
-        name: [git, zsh]
+        name: [zsh, git]
         state: present
         update_cache: true
 
