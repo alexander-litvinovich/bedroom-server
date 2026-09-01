@@ -1,0 +1,57 @@
+---
+- name: Install Tailscale
+  hosts: localhost
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Validate the target host
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+        fail_msg: Run this playbook on Ubuntu with become enabled
+
+  tasks:
+    - name: Install Tailscale repository prerequisites
+      ansible.builtin.apt:
+        name: ca-certificates
+        state: present
+        update_cache: true
+
+    - name: Create the Tailscale keyring directory
+      ansible.builtin.file:
+        path: /usr/share/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Install the Tailscale signing key
+      ansible.builtin.get_url:
+        url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure the Tailscale APT repository
+      ansible.builtin.get_url:
+        url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.tailscale-keyring.list"
+        dest: /etc/apt/sources.list.d/tailscale.list
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Install Tailscale
+      ansible.builtin.apt:
+        name: tailscale
+        state: present
+        update_cache: true
+
+    - name: Enable and start Tailscale
+      ansible.builtin.systemd_service:
+        name: tailscaled
+        enabled: true
+        state: started
+
+    - name: Enable Tailscale automatic updates
+      ansible.builtin.command: tailscale set --auto-update
+      changed_when: false

@@ -36,18 +36,32 @@ Install Ansible and run the general package and SSH playbooks locally:
 sudo apt update
 sudo apt install -y ansible-core
 ansible-playbook --ask-become-pass ansible/packages.yml
+ansible-playbook --ask-become-pass ansible/power-management.yml
 ansible-playbook --ask-become-pass ansible/ssh.yml
+ansible-playbook --ask-become-pass ansible/tailscale.yml
 ansible-playbook --ask-become-pass ansible/xrdp.yml
+ansible-playbook --ask-become-pass ansible/docker.yml
+ansible-playbook --ask-become-pass ansible/ohmyzsh.yml
 sudo passwd rdpuser
 ```
 
-`ansible/packages.yml` installs Git, GitHub CLI, Zsh, Midnight Commander,
-Homebrew, and RTK.
+`ansible/packages.yml` installs Git, GitHub CLI, Midnight Commander, Homebrew,
+and RTK.
+`ansible/power-management.yml` prevents suspend and hibernation and makes the
+power button shut down the host.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.
+`ansible/tailscale.yml` installs Tailscale from its official APT repository,
+starts `tailscaled`, and enables client automatic updates. Authenticate once with
+`sudo tailscale up`.
 `ansible/xrdp.yml` creates the `rdpuser` account and configures XRDP for it,
 including its firewall rule and headless display configuration.
+`ansible/docker.yml` installs Docker Engine from Docker's APT repository, enables
+its services, and adds the current user to the `docker` group. Log out and back
+in before using Docker without `sudo`.
+`ansible/ohmyzsh.yml` installs Zsh and Oh My Zsh for the current user without
+overwriting an existing `.zshrc`.
 
 Run `preflight.sh` afterward for the software that has not yet been converted to
 Ansible.
