@@ -1,0 +1,59 @@
+---
+- name: Install Oh My Zsh
+  hosts: localhost
+  become: true
+  gather_facts: true
+
+  vars:
+    ohmyzsh_user: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
+
+  pre_tasks:
+    - name: Validate the target host
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ohmyzsh_user | length > 0
+          - ohmyzsh_user != 'root'
+        fail_msg: Run this playbook on Ubuntu as a non-root user with become enabled
+
+    - name: Read the Oh My Zsh user account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ ohmyzsh_user }}"
+
+    - name: Set Oh My Zsh user details
+      ansible.builtin.set_fact:
+        ohmyzsh_group: "{{ ansible_facts.getent_passwd[ohmyzsh_user][2] }}"
+        ohmyzsh_home: "{{ ansible_facts.getent_passwd[ohmyzsh_user][4] }}"
+
+  tasks:
+    - name: Install Oh My Zsh prerequisites
+      ansible.builtin.apt:
+        name: [git, zsh]
+        state: present
+        update_cache: true
+
+    - name: Use Zsh as the login shell
+      ansible.builtin.user:
+        name: "{{ ohmyzsh_user }}"
+        shell: /usr/bin/zsh
+
+    - name: Install Oh My Zsh
+      ansible.builtin.git:
+        repo: https://github.com/ohmyzsh/ohmyzsh.git
+        dest: "{{ ohmyzsh_home }}/.oh-my-zsh"
+        version: master
+        update: false
+      become_user: "{{ ohmyzsh_user }}"
+      environment:
+        HOME: "{{ ohmyzsh_home }}"
+
+    - name: Create the default Zsh configuration
+      ansible.builtin.copy:
+        src: "{{ ohmyzsh_home }}/.oh-my-zsh/templates/zshrc.zsh-template"
+        dest: "{{ ohmyzsh_home }}/.zshrc"
+        remote_src: true
+        force: false
+        owner: "{{ ohmyzsh_user }}"
+        group: "{{ ohmyzsh_group }}"
+        mode: '0644'

@@ -1,0 +1,89 @@
+---
+- name: Install Docker Engine
+  hosts: localhost
+  become: true
+  gather_facts: true
+
+  vars:
+    docker_user: "{{ lookup('env', 'SUDO_USER') | default(lookup('env', 'USER'), true) }}"
+    docker_architecture: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+
+  pre_tasks:
+    - name: Validate the target host
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_architecture in ['x86_64', 'aarch64']
+          - docker_user | length > 0
+          - docker_user != 'root'
+        fail_msg: Run this playbook on supported Ubuntu hardware as a non-root user with become enabled
+
+    - name: Read the Docker user account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ docker_user }}"
+
+    - name: Set Docker user details
+      ansible.builtin.set_fact:
+        docker_group: "{{ ansible_facts.getent_passwd[docker_user][2] }}"
+        docker_home: "{{ ansible_facts.getent_passwd[docker_user][4] }}"
+
+  tasks:
+    - name: Install Docker repository prerequisites
+      ansible.builtin.apt:
+        name: [ca-certificates, curl]
+        state: present
+        update_cache: true
+
+    - name: Create the Docker keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Install the Docker signing key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure the Docker APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ docker_architecture }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        filename: docker
+        state: present
+        update_cache: true
+
+    - name: Install Docker Engine
+      ansible.builtin.apt:
+        name:
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-ce
+          - docker-ce-cli
+          - docker-compose-plugin
+        state: present
+
+    - name: Add the user to the Docker group
+      ansible.builtin.user:
+        name: "{{ docker_user }}"
+        groups: docker
+        append: true
+
+    - name: Fix Docker client directory ownership
+      ansible.builtin.file:
+        path: "{{ docker_home }}/.docker"
+        state: directory
+        owner: "{{ docker_user }}"
+        group: "{{ docker_group }}"
+        mode: '0770'
+        recurse: true
+
+    - name: Enable and start Docker services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: [containerd.service, docker.service]

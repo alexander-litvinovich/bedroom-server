@@ -37,6 +37,8 @@ sudo apt update
 sudo apt install -y ansible-core
 ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/packages.yml
 ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/ssh.yml
+ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/docker.yml
+ansible-playbook --connection=local --inventory localhost, --ask-become-pass ansible/ohmyzsh.yml
 ```
 
 `ansible/packages.yml` installs Git, GitHub CLI, Zsh, Midnight Commander,
@@ -44,6 +46,11 @@ Homebrew, and RTK.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.
+`ansible/docker.yml` installs Docker Engine from Docker's APT repository, enables
+its services, and adds the current user to the `docker` group. Log out and back
+in before using Docker without `sudo`.
+`ansible/ohmyzsh.yml` installs Zsh and Oh My Zsh for the current user without
+overwriting an existing `.zshrc`.
 
 Run `preflight.sh` afterward for the software that has not yet been converted to
 Ansible.

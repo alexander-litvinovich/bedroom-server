@@ -17,9 +17,7 @@ source "$UTILS_DIR/print.sh"
 sudo apt-get install -y toilet boxes
 
 # Software w/ install bash scripts
-zsh "$INSTALLS_DIR/ohmyzsh.sh"
 install "tailscale" "curl -fsSL https://tailscale.com/install.sh | sh"
-install "docker" "$INSTALLS_DIR/docker.sh"
 install "lazydocker" "curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash"
 install "ollama" "curl -fsSL https://ollama.com/install.sh | sh"
 zsh -c "export XRDP_USER=\"$XRDP_USER\" && \"$INSTALLS_DIR/xrdp.sh\""
