@@ -40,7 +40,6 @@
           - git
           - mc
           - procps
-          - zsh
         state: present
         update_cache: true
 
