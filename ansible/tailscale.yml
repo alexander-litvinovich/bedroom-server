@@ -1,5 +1,5 @@
 ---
-- name: Install Tailscale
+- name: Install and monitor Tailscale
   hosts: localhost
   become: true
   gather_facts: true
@@ -9,42 +9,23 @@
       ansible.builtin.assert:
         that:
           - ansible_distribution == 'Ubuntu'
-        fail_msg: Run this playbook on Ubuntu with become enabled
+          - ansible_architecture in ['x86_64', 'aarch64']
+        fail_msg: Run this playbook on supported Ubuntu hardware with become enabled
 
   tasks:
-    - name: Install Tailscale repository prerequisites
+    - name: Install curl
       ansible.builtin.apt:
-        name: ca-certificates
+        name: curl
         state: present
         update_cache: true
-
-    - name: Create the Tailscale keyring directory
-      ansible.builtin.file:
-        path: /usr/share/keyrings
-        state: directory
-        mode: '0755'
-
-    - name: Install the Tailscale signing key
-      ansible.builtin.get_url:
-        url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
-        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
-        owner: root
-        group: root
-        mode: '0644'
-
-    - name: Configure the Tailscale APT repository
-      ansible.builtin.get_url:
-        url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.tailscale-keyring.list"
-        dest: /etc/apt/sources.list.d/tailscale.list
-        owner: root
-        group: root
-        mode: '0644'
 
     - name: Install Tailscale
-      ansible.builtin.apt:
-        name: tailscale
-        state: present
-        update_cache: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -fsSL https://tailscale.com/install.sh | /bin/sh
+      args:
+        creates: /usr/bin/tailscale
+        executable: /bin/bash
 
     - name: Enable and start Tailscale
       ansible.builtin.systemd_service:
@@ -52,6 +33,65 @@
         enabled: true
         state: started
 
-    - name: Enable Tailscale automatic updates
-      ansible.builtin.command: tailscale set --auto-update
-      changed_when: false
+    - name: Install the Tailscale health check
+      ansible.builtin.copy:
+        dest: /usr/local/sbin/tailscale-healthcheck
+        owner: root
+        group: root
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          set -eu
+
+          if curl --silent --show-error --fail --max-time 10 \
+            --unix-socket /run/tailscale/tailscaled.sock \
+            --header 'Sec-Tailscale: localapi' \
+            http://local-tailscaled.sock/localapi/v0/status >/dev/null; then
+            exit 0
+          fi
+
+          logger -t tailscale-healthcheck 'local API is unresponsive; restarting tailscaled'
+          systemctl restart tailscaled
+
+    - name: Install the Tailscale health-check service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/tailscale-healthcheck.service
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Restart Tailscale when its local API stops responding
+          After=tailscaled.service
+          Requires=tailscaled.service
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/tailscale-healthcheck
+          TimeoutStartSec=30
+
+    - name: Install the Tailscale health-check timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/tailscale-healthcheck.timer
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Check Tailscale every five minutes
+
+          [Timer]
+          OnBootSec=5min
+          OnUnitActiveSec=5min
+          RandomizedDelaySec=30s
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable the Tailscale health-check timer
+      ansible.builtin.systemd_service:
+        name: tailscale-healthcheck.timer
+        enabled: true
+        state: started
+        daemon_reload: true

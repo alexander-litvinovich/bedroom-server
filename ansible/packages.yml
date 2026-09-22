@@ -85,3 +85,28 @@
       environment:
         HOME: "{{ packages_admin_home }}"
         USER: "{{ packages_admin_user }}"
+
+    - name: Install OpenCode with Homebrew
+      ansible.builtin.command:
+        argv:
+          - "{{ homebrew_prefix }}/bin/brew"
+          - install
+          - anomalyco/tap/opencode-v2
+        creates: "{{ homebrew_prefix }}/bin/opencode"
+      become_user: "{{ packages_admin_user }}"
+      environment:
+        HOME: "{{ packages_admin_home }}"
+        USER: "{{ packages_admin_user }}"
+
+    - name: Install Codex with Homebrew
+      ansible.builtin.command:
+        argv:
+          - "{{ homebrew_prefix }}/bin/brew"
+          - install
+          - --cask
+          - codex
+        creates: "{{ homebrew_prefix }}/bin/codex"
+      become_user: "{{ packages_admin_user }}"
+      environment:
+        HOME: "{{ packages_admin_home }}"
+        USER: "{{ packages_admin_user }}"

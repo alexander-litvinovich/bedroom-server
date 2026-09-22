@@ -46,15 +46,14 @@ sudo passwd rdpuser
 ```
 
 `ansible/packages.yml` installs Git, GitHub CLI, Midnight Commander, Homebrew,
-and RTK.
+RTK, OpenCode, and Codex.
 `ansible/power-management.yml` prevents suspend and hibernation and makes the
 power button shut down the host.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.
-`ansible/tailscale.yml` installs Tailscale from its official APT repository,
-starts `tailscaled`, and enables client automatic updates. Authenticate once with
-`sudo tailscale up`.
+`ansible/tailscale.yml` installs Tailscale and a five-minute health check that
+restarts `tailscaled` if its local API stops responding.
 `ansible/xrdp.yml` creates the `rdpuser` account and configures XRDP for it,
 including its firewall rule and headless display configuration.
 `ansible/docker.yml` installs Docker Engine from Docker's APT repository, enables
@@ -65,6 +64,12 @@ overwriting an existing `.zshrc`.
 
 Run `preflight.sh` afterward for the software that has not yet been converted to
 Ansible.
+
+Authenticate Tailscale once after the first installation:
+
+```bash
+sudo tailscale up
+```
 
 ## VS Code Remote Tunnel
 
