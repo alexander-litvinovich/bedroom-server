@@ -37,20 +37,29 @@ sudo apt update
 sudo apt install -y ansible-core
 ansible-playbook --ask-become-pass ansible/packages.yml
 ansible-playbook --ask-become-pass ansible/ssh.yml
+ansible-playbook --ask-become-pass ansible/tailscale.yml
 ansible-playbook --ask-become-pass ansible/xrdp.yml
 sudo passwd rdpuser
 ```
 
 `ansible/packages.yml` installs Git, GitHub CLI, Zsh, Midnight Commander,
-Homebrew, and RTK.
+Homebrew, RTK, OpenCode, and Codex.
 `ansible/ssh.yml` installs OpenSSH, UFW, and Keychain; enables the SSH service;
 allows SSH through UFW; installs `assets/ssh_config`; and configures Keychain for
 the current user.
+`ansible/tailscale.yml` installs Tailscale and a five-minute health check that
+restarts `tailscaled` if its local API stops responding.
 `ansible/xrdp.yml` creates the `rdpuser` account and configures XRDP for it,
 including its firewall rule and headless display configuration.
 
 Run `preflight.sh` afterward for the software that has not yet been converted to
 Ansible.
+
+Authenticate Tailscale once after the first installation:
+
+```bash
+sudo tailscale up
+```
 
 ## VS Code Remote Tunnel
 
