@@ -23,6 +23,13 @@
         state: present
         update_cache: true
 
+    - name: Allow XRDP to read its TLS private key
+      ansible.builtin.user:
+        name: xrdp
+        groups: ssl-cert
+        append: true
+      notify: Restart xrdp
+
     - name: Create the XRDP account
       ansible.builtin.user:
         name: "{{ xrdp_user }}"
