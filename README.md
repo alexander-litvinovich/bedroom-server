@@ -251,6 +251,8 @@ sudo mount -a
 | 443  | NGINX Proxy Manager (HTTPS)      |
 | 2283 | Immich (HTTP)                    |
 | 8080 | Pi-Hole (HTTP)                   |
+| 8081 | Vaultwarden (HTTP, LAN only)     |
+| 8090 | Glance (HTTP)                    |
 | 8443 | Pi-Hole (HTTPS)                  |
 | 3389 | XRDP Server                      |
 
@@ -261,11 +263,3 @@ When cannot connect to RDP try to terminate user session
 ```bash
 loginctl terminate-user rdpuser
 ```
-
-## Web Services currently running in home network
-
-- http://immich.myhome
-- http://kavita.myhome
-- http://n8n.myhome
-- http://pihole.myhome
-- http://proxymanager.myhome

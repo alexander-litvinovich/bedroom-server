@@ -3,6 +3,8 @@ services:
     image: vaultwarden/server:1.35.2
     container_name: vaultwarden
     restart: unless-stopped
+    ports:
+      - "192.168.100.22:8081:80"
     env_file:
       - ../../.env
     environment:
