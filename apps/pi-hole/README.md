@@ -44,6 +44,9 @@ sudo chown $USER:$USER /var/lib/pihole
    
    # DNS listening mode: all, local, single, bind
    PIHOLE_DNS_LISTENING_MODE=all
+
+   # Home zone: resolve this domain and its subdomains locally; do not forward IPv6 queries
+   PIHOLE_DNSMASQ_LINES=address=/home.example.test/192.168.1.10;local=/home.example.test/
    ```
 
 ### 3. Start Pi-hole
@@ -97,8 +100,7 @@ Login with the password set in `PIHOLE_PASS`.
 3. Apply update:
    ```bash
    cd apps/pi-hole
-   docker compose pull pihole
-   ./up.sh
+   ./update.sh
    ```
 
 ## Troubleshooting

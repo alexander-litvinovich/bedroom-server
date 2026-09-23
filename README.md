@@ -71,6 +71,12 @@ Authenticate Tailscale once after the first installation:
 sudo tailscale up
 ```
 
+The playbook enables IPv4 forwarding and advertises `192.168.100.0/24` when
+Tailscale is connected. If this is the first installation, rerun the playbook
+after `tailscale up`. Approve the advertised subnet on this server in the
+Tailscale admin console unless it is auto-approved. Check the setting with
+`sysctl net.ipv4.ip_forward` and `tailscale debug prefs`.
+
 ## VS Code Remote Tunnel
 
 The `ansible/vscode-tunnel.yml` playbook installs the Microsoft Visual Studio

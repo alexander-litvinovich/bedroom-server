@@ -33,6 +33,41 @@
         enabled: true
         state: started
 
+    - name: Persist IPv4 forwarding for the subnet router
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-tailscale.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          net.ipv4.ip_forward = 1
+      register: tailscale_forwarding
+
+    - name: Apply IPv4 forwarding
+      ansible.builtin.command: sysctl -p /etc/sysctl.d/99-tailscale.conf
+      when: tailscale_forwarding.changed
+
+    - name: Check Tailscale login state
+      ansible.builtin.command: tailscale status --json
+      register: tailscale_status
+      changed_when: false
+
+    - name: Advertise the home subnet when Tailscale is connected
+      when: (tailscale_status.stdout | from_json).BackendState == 'Running'
+      block:
+        - name: Read current Tailscale preferences
+          ansible.builtin.command: tailscale debug prefs
+          register: tailscale_prefs
+          changed_when: false
+
+        - name: Advertise the home subnet
+          ansible.builtin.command:
+            argv:
+              - tailscale
+              - set
+              - "--advertise-routes={{ (((tailscale_prefs.stdout | from_json).AdvertiseRoutes | default([], true)) + ['192.168.100.0/24']) | unique | join(',') }}"
+          when: "'192.168.100.0/24' not in ((tailscale_prefs.stdout | from_json).AdvertiseRoutes | default([], true))"
+
     - name: Install the Tailscale health check
       ansible.builtin.copy:
         dest: /usr/local/sbin/tailscale-healthcheck

@@ -19,6 +19,7 @@ services:
       TZ: ${TZ:-UTC}
       FTLCONF_webserver_api_password: ${PIHOLE_PASS}
       FTLCONF_dns_listeningMode: ${PIHOLE_DNS_LISTENING_MODE:-all}
+      FTLCONF_misc_dnsmasq_lines: ${PIHOLE_DNSMASQ_LINES:-}
     volumes:
       - ${PIHOLE_DATA_DIR}:/etc/pihole
     cap_add:
