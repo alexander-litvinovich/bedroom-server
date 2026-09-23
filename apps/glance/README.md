@@ -1,6 +1,8 @@
 # Glance
 
-Home dashboard with Helsinki weather, a 24-hour clock, and links to deployed services. Its configuration is tracked in `config/glance.yml`; no credentials are required.
+Home dashboard with Helsinki weather, a 24-hour clock, server stats, Docker container status, and links to deployed services. Its configuration is tracked in `config/glance.yml`; no credentials are required.
+
+The stats widget reports CPU and memory from the local host and shows the system filesystem. Glance runs in Docker, so other host mountpoints and some hardware sensors will not appear unless separately exposed to the container. The Docker widget lists containers from the host's Docker socket. Mounting that socket gives Glance broad Docker access even with `:ro`; restrict access to the dashboard accordingly.
 
 ## Start
 

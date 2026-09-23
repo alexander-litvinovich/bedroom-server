@@ -9,6 +9,15 @@ pages:
             location: Helsinki, Finland
             units: metric
             hour-format: 24h
+          - type: server-stats
+            servers:
+              - type: local
+                name: Bedroom Server
+                hide-mountpoints-by-default: true
+                mountpoints:
+                  "/":
+                    name: System
+                    hide: false
       - size: full
         widgets:
           - type: bookmarks
@@ -29,3 +38,5 @@ pages:
                     url: https://immich.home.litvinovich.dev
                   - title: Kavita
                     url: https://kavita.home.litvinovich.dev
+          - type: docker-containers
+            format-container-names: true
