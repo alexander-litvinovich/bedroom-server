@@ -1,0 +1,31 @@
+pages:
+  - name: Home
+    columns:
+      - size: small
+        widgets:
+          - type: clock
+            hour-format: 24h
+          - type: weather
+            location: Helsinki, Finland
+            units: metric
+            hour-format: 24h
+      - size: full
+        widgets:
+          - type: bookmarks
+            groups:
+              - title: Services
+                links:
+                  - title: Portainer
+                    url: https://portainer.home.litvinovich.dev
+                  - title: Nginx Proxy Manager
+                    url: https://proxymanager.home.litvinovich.dev
+                  - title: Pi-hole
+                    url: https://pihole.home.litvinovich.dev/admin
+                  - title: n8n
+                    url: https://n8n.home.litvinovich.dev
+                  - title: Vaultwarden
+                    url: https://vaultwarden.home.litvinovich.dev
+                  - title: Immich
+                    url: https://immich.home.litvinovich.dev
+                  - title: Kavita
+                    url: https://kavita.home.litvinovich.dev
